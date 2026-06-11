@@ -1,0 +1,9 @@
+{
+  "name": "LocalForge",
+  "platform": "macOS",
+  "stack": ["Swift", "SwiftUI", "SwiftPM", "Local storage"],
+  "products": ["LocalForgeCore", "LocalForge", "localforge"],
+  "defaultPrivacy": "local-first, no telemetry, no cloud AI, no source upload",
+  "defaultSafety": "read-only",
+  "v1Status": "foundation implementation"
+}

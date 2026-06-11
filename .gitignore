@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# SwiftPM / build output
+.build/
+.swiftpm/
+dist/
+DerivedData/
+
+# Xcode user state
+*.xcuserstate
+xcuserdata/
+
+# Local tooling / logs
+*.log
+*.tmp
+.cache/
+
+# Local agent scratch
+.claude/
