@@ -12,15 +12,36 @@ struct DiagnosticRainBackground: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
 
-    private let tokenWidth = 6
-    private let tokens = [
-        "let", "var", "func", "struct", "enum", "await", "return", "state",
-        "truth", "verify", "risk", "release", "build", "test", "evidence", "vault",
-        "cd", "git", "swift", "xcode", "auval", "sign", "status", "diff",
-        "{", "}", "[", "]", ":", "true", "false", "null",
-        "0xA7F2", "0x4A3F", "FF91", "3C7A", "A42F", "7D9C",
-        "0101", "1100", "1010", "0011",
-        "==", "!=", "&&", "||", "->", "=>",
+    private let tokenWidth = 7
+    private let swiftTokens = [
+        "let", "var", "func", "struct", "enum", "await", "return", "import",
+        "actor", "state", "truth", "verify", "risk", "release", "evid",
+    ]
+    private let shellTokens = [
+        "git", "swift", "build", "test", "cd", "grep", "codesign", "xcode",
+        "auval", "status", "diff", "log",
+    ]
+    private let jsonTokens = [
+        "{}", "[]", ":", "true", "false", "null", "\"id\"", "\"ok\"",
+    ]
+    private let hexBinaryTokens = [
+        "0xA7F2", "0x4A3F", "FF91", "3C7A", "A42F", "7D9C", "0101", "1100",
+        "1010", "0011",
+    ]
+    private let operatorTokens = [
+        "==", "!=", "&&", "||", "->", "=>", "::", "??", "<=", ">=",
+    ]
+    private let multilingualTokens = [
+        "かな", "カナ", "字", "型", "値", "数", "光", "音",
+        "数", "码", "流", "点", "形", "源", "层", "核",
+        "код", "тест", "тип", "узел", "мод",
+        "한", "글", "코드", "값", "형", "빛",
+        "λ", "π", "Ω", "Δ", "Σ", "φ", "θ",
+        "ا", "ب", "م", "ن", "س", "ك", "ل",
+        "é", "ñ", "å", "ø", "ç", "ü", "ß",
+    ]
+    private let technicalSymbols = [
+        "∑", "∂", "≈", "≤", "≥", "∞", "µ", "⌘", "⌥", "⟂", "◇", "◌",
     ]
 
     var body: some View {
@@ -116,21 +137,36 @@ struct DiagnosticRainBackground: View {
     }
 
     private func streamHue(for column: Int) -> Double {
-        switch positiveModulo(column * 17, 5) {
+        switch positiveModulo(column * 17, 6) {
         case 0: return 0.43 // green
         case 1: return 0.50 // cyan
         case 2: return 0.57 // blue
         case 3: return 0.74 // violet
-        default: return 0.14 // amber
+        case 4: return 0.14 // amber
+        default: return 0.83 // magenta
         }
     }
 
     private func token(forColumn column: Int, virtualRow: Int, variant: Int) -> String {
+        let group = tokenGroup(forColumn: column, virtualRow: virtualRow, variant: variant)
         let mixed = column &* 97 &+ virtualRow &* 31 &+ variant &* 13
-        let raw = tokens[positiveModulo(mixed, tokens.count)]
+        let raw = group[positiveModulo(mixed, group.count)]
         let clipped = String(raw.prefix(tokenWidth))
         if clipped.count >= tokenWidth { return clipped }
         return clipped + String(repeating: " ", count: tokenWidth - clipped.count)
+    }
+
+    private func tokenGroup(forColumn column: Int, virtualRow: Int, variant: Int) -> [String] {
+        let selector = positiveModulo(column &* 41 &+ virtualRow &* 7 &+ variant &* 17, 100)
+        switch selector {
+        case 0..<18: return swiftTokens
+        case 18..<32: return shellTokens
+        case 32..<44: return jsonTokens
+        case 44..<58: return hexBinaryTokens
+        case 58..<70: return operatorTokens
+        case 70..<90: return multilingualTokens
+        default: return technicalSymbols
+        }
     }
 
     private func trailIndex(forScreenRow row: Double, head: Double, length: Int, rows: Int) -> Int? {
@@ -152,10 +188,10 @@ struct DiagnosticRainBackground: View {
 
         return StreamProfile(
             rowsPerSecond: rowsPerSecond,
-            length: 8 + positiveModulo(column * 5, 9),
+            length: 9 + positiveModulo(column * 5, 10),
             phase: positiveModulo(column * 19, 80),
-            brightness: 0.72 + Double(positiveModulo(column * 23, 42)) / 100,
-            fontSize: 9.0 + CGFloat(positiveModulo(column * 7, 2))
+            brightness: 0.70 + Double(positiveModulo(column * 23, 40)) / 100,
+            fontSize: 8.8 + CGFloat(positiveModulo(column * 7, 2))
         )
     }
 
@@ -209,17 +245,17 @@ extension DiagnosticBackgroundIntensity {
 extension DiagnosticBackgroundDensity {
     var columnWidth: CGFloat {
         switch self {
-        case .sparse: 62
-        case .balanced: 50
-        case .dense: 42
+        case .sparse: 66
+        case .balanced: 54
+        case .dense: 48
         }
     }
 
     var rowHeight: CGFloat {
         switch self {
-        case .sparse: 18.5
-        case .balanced: 16.5
-        case .dense: 15
+        case .sparse: 19
+        case .balanced: 17
+        case .dense: 15.5
         }
     }
 
