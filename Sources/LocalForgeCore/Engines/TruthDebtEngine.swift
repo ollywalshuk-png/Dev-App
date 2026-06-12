@@ -11,11 +11,11 @@ public struct TruthDebtEngine: Sendable {
     ) -> TruthDebtReport {
         let inScope = snapshot.applicability.filter { $0.status.inScope }
         let applicabilityByArea = inScope.reduce(into: [String: ApplicabilityItem]()) { items, item in
-            items[item.area] = item
+            items[normalized(item.area)] = item
         }
-        let verificationByArea = Dictionary(grouping: snapshot.verification, by: \.area)
+        let verificationByArea = Dictionary(grouping: snapshot.verification, by: { normalized($0.area) })
         let stateByArea = snapshot.verification.reduce(into: [String: VerificationState]()) { states, record in
-            states[record.area] = record.state
+            states[normalized(record.area)] = record.state
         }
         let releaseBlockingRiskIDs = Set(risks.filter(\.isReleaseBlocking).map(\.id))
 
@@ -33,7 +33,7 @@ public struct TruthDebtEngine: Sendable {
         }
 
         for item in inScope {
-            let records = verificationByArea[item.area] ?? []
+            let records = verificationByArea[normalized(item.area)] ?? []
             guard let record = records.first else {
                 gates.append(unverifiedGate(area: item.area, priority: item.priority, state: .unknown, sourceID: nil))
                 continue
@@ -87,7 +87,7 @@ public struct TruthDebtEngine: Sendable {
         }
 
         for assumption in assumptions where assumption.status == .active {
-            let linkedItem = applicabilityByArea[assumption.linkedVerificationArea]
+            let linkedItem = applicabilityByArea[normalized(assumption.linkedVerificationArea)]
             let linkedRiskBlocks = assumption.linkedRiskIDs.contains { releaseBlockingRiskIDs.contains($0) }
             let blocks = linkedRiskBlocks || linkedItem.map { blocksReleaseClaim(priority: $0.priority) } == true
             gates.append(TruthDebtGate(
@@ -110,7 +110,7 @@ public struct TruthDebtEngine: Sendable {
             projectName: snapshot.project.name
         )
         for conflict in conflicts {
-            let priority = applicabilityByArea[conflict.area]?.priority ?? .medium
+            let priority = applicabilityByArea[normalized(conflict.area)]?.priority ?? .medium
             gates.append(TruthDebtGate(
                 kind: .contradictoryEvidence,
                 severity: blocksReleaseClaim(priority: priority) ? .high : .medium,
@@ -171,7 +171,7 @@ public struct TruthDebtEngine: Sendable {
         stateByArea: [String: VerificationState]
     ) -> [TruthDebtGate] {
         record.dependsOn.compactMap { dependency -> TruthDebtGate? in
-            let dependencyState = stateByArea[dependency] ?? .unknown
+            let dependencyState = stateByArea[normalized(dependency)] ?? .unknown
             guard dependencyState != .verified else { return nil }
             return TruthDebtGate(
                 kind: .blockedDependency,
