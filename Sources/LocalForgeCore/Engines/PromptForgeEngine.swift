@@ -54,8 +54,22 @@ public struct PromptForgeEngine: Sendable {
         assumptions: [AssumptionRecord] = []
     ) -> String {
         switch artefact {
-        case .codexPrompt: codexPrompt(snapshot: snapshot, knowledge: knowledge)
-        case .claudePrompt: claudePrompt(snapshot: snapshot, knowledge: knowledge)
+        case .codexPrompt:
+            codexPrompt(
+                snapshot: snapshot,
+                knowledge: knowledge,
+                evidence: evidence,
+                risks: risks,
+                assumptions: assumptions
+            )
+        case .claudePrompt:
+            claudePrompt(
+                snapshot: snapshot,
+                knowledge: knowledge,
+                evidence: evidence,
+                risks: risks,
+                assumptions: assumptions
+            )
         case .fixProposal: fixProposal(snapshot: snapshot, knowledge: knowledge, evidence: evidence)
         case .comprehensiveHandoff: comprehensiveHandoff(
                 snapshot: snapshot,
@@ -66,7 +80,13 @@ public struct PromptForgeEngine: Sendable {
                 architecture: architecture,
                 assumptions: assumptions
             )
-        case .reviewerBrief: reviewerBrief(snapshot: snapshot)
+        case .reviewerBrief:
+            reviewerBrief(
+                snapshot: snapshot,
+                evidence: evidence,
+                risks: risks,
+                assumptions: assumptions
+            )
         }
     }
 
@@ -124,6 +144,13 @@ public struct PromptForgeEngine: Sendable {
         Next action: \(r.nextAction)
         """))
 
+        sections.append(truthDebtSection(for: truthDebtReport(
+            snapshot: snapshot,
+            evidence: evidence,
+            risks: risks,
+            assumptions: assumptions
+        )))
+
         sections.append(HandoffSection(title: "Applicability", body: snapshot.applicability
             .map { "- \($0.area): \($0.status.rawValue)" }
             .joined(separator: "\n")))
@@ -150,10 +177,10 @@ public struct PromptForgeEngine: Sendable {
 
         if !evidence.isEmpty {
             let body = evidence.map { record -> String in
-                let header = "[\(record.area) · \(record.kind.rawValue) · \(record.classification.rawValue)] \(record.summary) (\(formatted(record.createdAt)))"
+                let header = "[\(safeInline(record.area)) · \(record.kind.rawValue) · \(record.classification.rawValue)] \(safeInline(record.summary)) (\(formatted(record.createdAt)))"
                 var lines = ["- \(header)"]
-                if !record.body.isEmpty { lines.append("  \(record.body.replacingOccurrences(of: "\n", with: "\n  "))") }
-                if !record.attachmentPath.isEmpty { lines.append("  Attachment: \(record.attachmentPath)") }
+                if !record.body.isEmpty { lines.append("  \(safeBlock(record.body).replacingOccurrences(of: "\n", with: "\n  "))") }
+                if !record.attachmentPath.isEmpty { lines.append("  Attachment: \(safeInline(record.attachmentPath))") }
                 return lines.joined(separator: "\n")
             }.joined(separator: "\n")
             sections.append(HandoffSection(title: "Evidence", body: body))
@@ -161,32 +188,32 @@ public struct PromptForgeEngine: Sendable {
 
         if !knowledge.isEmpty {
             let body = knowledge.map { note -> String in
-                let header = "[\(note.kind.rawValue)] \(note.title) (\(formatted(note.updatedAt)))"
-                let author = note.author.isEmpty ? "" : "\nby \(note.author)"
-                return "- \(header)\(author)\n  \(note.body.replacingOccurrences(of: "\n", with: "\n  "))"
+                let header = "[\(note.kind.rawValue)] \(safeInline(note.title)) (\(formatted(note.updatedAt)))"
+                let author = note.author.isEmpty ? "" : "\nby \(safeInline(note.author))"
+                return "- \(header)\(author)\n  \(safeBlock(note.body).replacingOccurrences(of: "\n", with: "\n  "))"
             }.joined(separator: "\n")
             sections.append(HandoffSection(title: "Knowledge Notes", body: body))
         }
 
         if !risks.isEmpty {
             sections.append(HandoffSection(title: "Risk Register", body: risks.map {
-                "- [\($0.status.rawValue)] \($0.title) — \($0.impact.rawValue) impact, \($0.likelihood.rawValue) likelihood\($0.mitigation.isEmpty ? "" : " · mitigation: \($0.mitigation)")"
+                "- [\($0.status.rawValue)] \(safeInline($0.title)) — \($0.impact.rawValue) impact, \($0.likelihood.rawValue) likelihood\($0.mitigation.isEmpty ? "" : " · mitigation: \(safeInline($0.mitigation))")"
             }.joined(separator: "\n")))
         }
         if !decisions.isEmpty {
             sections.append(HandoffSection(title: "Decision Register", body: decisions.map {
-                "- [\($0.status.rawValue)] \($0.title)\($0.reason.isEmpty ? "" : " — \($0.reason)")"
+                "- [\($0.status.rawValue)] \(safeInline($0.title))\($0.reason.isEmpty ? "" : " — \(safeInline($0.reason))")"
             }.joined(separator: "\n")))
         }
         if !architecture.isEmpty {
             sections.append(HandoffSection(title: "Architecture", body: architecture.map {
-                let deps = $0.dependencies.isEmpty ? "" : " · depends on: \($0.dependencies.joined(separator: ", "))"
-                return "- \($0.name) [\($0.subsystemType.rawValue) · \($0.status.rawValue)]\($0.purpose.isEmpty ? "" : " — \($0.purpose)")\(deps)"
+                let deps = $0.dependencies.isEmpty ? "" : " · depends on: \($0.dependencies.map { safeInline($0) }.joined(separator: ", "))"
+                return "- \(safeInline($0.name)) [\($0.subsystemType.rawValue) · \($0.status.rawValue)]\($0.purpose.isEmpty ? "" : " — \(safeInline($0.purpose))")\(deps)"
             }.joined(separator: "\n")))
         }
         if !assumptions.isEmpty {
             sections.append(HandoffSection(title: "Assumption Register", body: assumptions.map {
-                "- [\($0.status.rawValue) · \($0.confidence.rawValue)] \($0.assumption)\($0.verificationNeeded.isEmpty ? "" : " · verify by: \($0.verificationNeeded)")"
+                "- [\($0.status.rawValue) · \($0.confidence.rawValue)] \(safeInline($0.assumption))\($0.verificationNeeded.isEmpty ? "" : " · verify by: \(safeInline($0.verificationNeeded))")"
             }.joined(separator: "\n")))
         }
 
@@ -202,11 +229,18 @@ public struct PromptForgeEngine: Sendable {
 
     // MARK: - Artefact builders
 
-    private func codexPrompt(snapshot: RepoSnapshot, knowledge: [KnowledgeNote]) -> String {
+    private func codexPrompt(
+        snapshot: RepoSnapshot,
+        knowledge: [KnowledgeNote],
+        evidence: [EvidenceRecord],
+        risks: [RiskRecord],
+        assumptions: [AssumptionRecord]
+    ) -> String {
         let r = snapshot.reality
         let mission = snapshot.userMission
         let topRisk = r.topRisks.first ?? "No verified top risk yet."
-        return """
+        let truthDebt = truthDebtReport(snapshot: snapshot, evidence: evidence, risks: risks, assumptions: assumptions)
+        let text = """
         # Codex Task Brief — \(snapshot.project.name)
 
         You are picking up work on a \(snapshot.identity.kind.rawValue).
@@ -220,6 +254,9 @@ public struct PromptForgeEngine: Sendable {
 
         ## Top risk to address
         \(topRisk)
+
+        ## Truth Debt / release claim boundary
+        \(promptTruthDebtBoundary(for: truthDebt))
 
         ## In-scope areas (Applicability)
         \(snapshot.applicability.filter { $0.status.inScope }.map { "- \($0.area) (\($0.status.rawValue))" }.joined(separator: "\n"))
@@ -242,11 +279,19 @@ public struct PromptForgeEngine: Sendable {
         3. A verification step that would let the user mark the related area Verified.
         \(knowledgeAddendum(knowledge))
         """
+        return promptOutput(text, report: truthDebt)
     }
 
-    private func claudePrompt(snapshot: RepoSnapshot, knowledge: [KnowledgeNote]) -> String {
+    private func claudePrompt(
+        snapshot: RepoSnapshot,
+        knowledge: [KnowledgeNote],
+        evidence: [EvidenceRecord],
+        risks: [RiskRecord],
+        assumptions: [AssumptionRecord]
+    ) -> String {
         let r = snapshot.reality
-        return """
+        let truthDebt = truthDebtReport(snapshot: snapshot, evidence: evidence, risks: risks, assumptions: assumptions)
+        let text = """
         # Claude Handoff — \(snapshot.project.name)
 
         Project type: \(snapshot.identity.kind.rawValue) [\(snapshot.identity.confidence.rawValue)]
@@ -259,6 +304,9 @@ public struct PromptForgeEngine: Sendable {
         - Top risks:
         \(bullets(r.topRisks))
         - Next action: \(r.nextAction)
+
+        ## Truth Debt / release claim boundary
+        \(promptTruthDebtBoundary(for: truthDebt))
 
         ## In scope
         \(snapshot.applicability.filter { $0.status.inScope }.map { "- \($0.area)" }.joined(separator: "\n"))
@@ -277,20 +325,21 @@ public struct PromptForgeEngine: Sendable {
         - A clear "what to verify next" so the user can update the Verification module.
         \(knowledgeAddendum(knowledge))
         """
+        return promptOutput(text, report: truthDebt)
     }
 
     private func fixProposal(snapshot: RepoSnapshot, knowledge: [KnowledgeNote], evidence: [EvidenceRecord]) -> String {
         let topRisk = snapshot.reality.topRisks.first ?? "No top risk recorded."
         let failing = snapshot.verification.first { $0.state == .failed }
         let symptomArea = failing?.area ?? extractArea(from: topRisk) ?? "Unknown area"
-        let symptomEvidence = failing?.note ?? topRisk
+        let symptomEvidence = safeInline(failing?.note ?? topRisk)
         let suggestion = suggestedSteps(for: symptomArea)
         let areaEvidence = evidence.filter { $0.area == symptomArea }
         let evidenceBlock = areaEvidence.isEmpty
             ? "- No evidence records on file for this area yet."
             : areaEvidence.prefix(8).map { record in
-                let body = record.body.isEmpty ? "" : " — \(record.body)"
-                return "- [\(record.classification.rawValue)] \(record.summary)\(body)"
+                let body = record.body.isEmpty ? "" : " — \(safeInline(record.body))"
+                return "- [\(record.classification.rawValue)] \(safeInline(record.summary))\(body)"
             }.joined(separator: "\n")
 
         return """
@@ -306,8 +355,8 @@ public struct PromptForgeEngine: Sendable {
         - Reality score: \(snapshot.reality.score)%
         - Mission: \(snapshot.mission.statedMission)
         - Verification: \(snapshot.verificationSummary.verified) verified, \(snapshot.verificationSummary.failed) failed
-        \(failing?.note.isEmpty == false ? "- Failure note: \(failing!.note)" : "")
-        \(failing?.verifiedBy.isEmpty == false ? "- Reported by: \(failing!.verifiedBy)" : "")
+        \(failing?.note.isEmpty == false ? "- Failure note: \(safeInline(failing!.note))" : "")
+        \(failing?.verifiedBy.isEmpty == false ? "- Reported by: \(safeInline(failing!.verifiedBy))" : "")
 
         ## Documented evidence for \(symptomArea)
         \(evidenceBlock)
@@ -354,9 +403,15 @@ public struct PromptForgeEngine: Sendable {
         """
     }
 
-    private func reviewerBrief(snapshot: RepoSnapshot) -> String {
+    private func reviewerBrief(
+        snapshot: RepoSnapshot,
+        evidence: [EvidenceRecord],
+        risks: [RiskRecord],
+        assumptions: [AssumptionRecord]
+    ) -> String {
         let r = snapshot.reality
-        return """
+        let truthDebt = truthDebtReport(snapshot: snapshot, evidence: evidence, risks: risks, assumptions: assumptions)
+        let text = """
         # Reviewer Brief — \(snapshot.project.name)
 
         - Type: \(snapshot.identity.kind.rawValue)
@@ -366,8 +421,12 @@ public struct PromptForgeEngine: Sendable {
         - Top risk: \(r.topRisks.first ?? "None")
         - Next action: \(r.nextAction)
 
+        ## Truth Debt / release claim boundary
+        \(promptTruthDebtBoundary(for: truthDebt))
+
         Please confirm the top risk above and the next action. If you disagree, update the affected Verification record so Reality reflects the new truth.
         """
+        return promptOutput(text, report: truthDebt)
     }
 
     // MARK: - Composition helpers
@@ -482,8 +541,122 @@ public struct PromptForgeEngine: Sendable {
 
     private func knowledgeAddendum(_ knowledge: [KnowledgeNote]) -> String {
         guard !knowledge.isEmpty else { return "" }
-        let bodies = knowledge.prefix(5).map { "- [\($0.kind.rawValue)] \($0.title)" }.joined(separator: "\n")
+        let bodies = knowledge.prefix(5).map { "- [\($0.kind.rawValue)] \(safeInline($0.title))" }.joined(separator: "\n")
         return "\n## Project knowledge already on file\n\(bodies)"
+    }
+
+    private func truthDebtReport(
+        snapshot: RepoSnapshot,
+        evidence: [EvidenceRecord],
+        risks: [RiskRecord],
+        assumptions: [AssumptionRecord]
+    ) -> TruthDebtReport {
+        TruthDebtEngine().report(
+            snapshot: snapshot,
+            evidence: evidence,
+            risks: risks,
+            assumptions: assumptions
+        )
+    }
+
+    private func truthDebtSection(for report: TruthDebtReport) -> HandoffSection {
+        HandoffSection(title: "Truth Debt", body: """
+        TruthDebtEngine status: \(safeInline(report.status.rawValue))
+        Headline: \(safeInline(report.headline))
+        Blockers: \(report.blockers.count)
+        Caveats: \(report.caveats.count)
+        Release-claim boundary: \(releaseClaimBoundary(for: report))
+        Top next actions:
+        \(actionBullets(report.nextActions, limit: 3))
+        """)
+    }
+
+    private func promptTruthDebtBoundary(for report: TruthDebtReport) -> String {
+        """
+        - TruthDebtEngine status: \(safeInline(report.status.rawValue))
+        - Blockers: \(report.blockers.count) · Caveats: \(report.caveats.count)
+        - Boundary: \(releaseClaimBoundary(for: report))
+        - Top next actions:
+        \(actionBullets(report.nextActions, limit: 3, avoidReleaseReady: report.status != .defensible))
+        """
+    }
+
+    private func releaseClaimBoundary(for report: TruthDebtReport) -> String {
+        switch report.status {
+        case .blocked:
+            "Do not make a release claim until blockers are resolved."
+        case .caveated:
+            "Only make qualified release claims while caveats remain."
+        case .defensible:
+            "No Truth Debt gate currently prevents a release-ready claim; keep evidence current."
+        }
+    }
+
+    private func actionBullets(
+        _ actions: [String],
+        limit: Int,
+        avoidReleaseReady: Bool = false
+    ) -> String {
+        let cleanedActions = unique(actions)
+            .prefix(max(0, limit))
+            .map { action in
+                avoidReleaseReady ? promptSafeInline(action) : safeInline(action)
+            }
+        return cleanedActions.isEmpty ? "- None" : cleanedActions.map { "- \($0)" }.joined(separator: "\n")
+    }
+
+    private func unique(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+
+        for value in values {
+            let key = safeInline(value, fallback: "")
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            result.append(value)
+        }
+
+        return result
+    }
+
+    private func promptSafeInline(_ text: String) -> String {
+        safeInline(text)
+            .replacingOccurrences(
+                of: #"(?i)claiming release-ready"#,
+                with: "making a release claim",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: #"(?i)release-ready"#,
+                with: "release claim",
+                options: .regularExpression
+            )
+    }
+
+    private func promptOutput(_ text: String, report: TruthDebtReport) -> String {
+        guard report.status != .defensible else { return text }
+        return text
+            .replacingOccurrences(
+                of: #"(?i)claiming release-ready"#,
+                with: "making a release claim",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: #"(?i)release-ready"#,
+                with: "release claim",
+                options: .regularExpression
+            )
+    }
+
+    private func safeInline(_ text: String, fallback: String = "Unknown") -> String {
+        let collapsed = safeBlock(text)
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return collapsed.isEmpty ? fallback : collapsed
+    }
+
+    private func safeBlock(_ text: String) -> String {
+        ReportEngine().redact(text)
     }
 
     private func gitBlock(_ git: GitStatus) -> String {
@@ -503,7 +676,7 @@ public struct PromptForgeEngine: Sendable {
     }
 
     private func bullets(_ items: [String]) -> String {
-        items.isEmpty ? "- None" : items.map { "- \($0)" }.joined(separator: "\n")
+        items.isEmpty ? "- None" : items.map { "- \(safeInline($0))" }.joined(separator: "\n")
     }
 
     private func formatted(_ date: Date) -> String {
