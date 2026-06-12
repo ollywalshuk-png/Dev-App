@@ -43,6 +43,28 @@ Every movement in the percentage should answer four questions:
 - How fresh is the proof?
 - What would improve or reduce the score next?
 
+## Audit Handoff Direction
+
+The next trust surface should be an auditable handoff, not a louder score.
+`Docs/41_Truth_Audit_Packets.md` defines that direction as a future packet
+contract.
+
+The packet should keep five signals separate:
+
+- Reality score: current local project-state summary.
+- Confidence: how well that state is supported by fresh, strong evidence.
+- Contribution provenance: the source rows that explain material score inputs.
+- Truth Debt gates: blockers and caveats that constrain release-ready language.
+- Release Readiness wording: the human claim allowed by the weakest supported
+  signal.
+
+No percentage alone should authorize release optimism. If provenance is thin,
+Confidence should fall or the handoff should say what is missing. If Critical or
+High in-scope Truth Debt remains, release-ready language stays blocked even
+when the Reality score looks strong. If external checks such as CI, signing,
+notarisation, stapling, Gatekeeper, or upstream merge state are not evidenced,
+the packet must say so.
+
 ## Product Principles
 
 - Percentage first, provenance immediately beside it.
