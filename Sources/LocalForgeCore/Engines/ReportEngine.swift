@@ -49,6 +49,9 @@ public struct ReportEngine: Sendable {
             ## Evidence Provenance
             \(provenanceBlock(for: snapshot))
 
+            ## Confidence Limits
+            \(confidenceLimitsBlock(for: snapshot))
+
             ## Evidence
             \(evidenceTierBlock(snapshot.evidence))
 
@@ -97,6 +100,44 @@ public struct ReportEngine: Sendable {
             "- Potential contradictions: \(contradictionCount)",
             "- Scope: local snapshot only; no remote services or private attachments are read for this report."
         ]).joined(separator: "\n")
+    }
+
+    private func confidenceLimitsBlock(for snapshot: RepoSnapshot) -> String {
+        let strongCount = snapshot.evidence.filter { isStrongEvidence($0.classification) }.count
+        let weakEvidence = snapshot.evidence.filter { !isStrongEvidence($0.classification) }
+        var lines: [String] = []
+
+        if snapshot.evidence.isEmpty {
+            lines.append("- Confidence caveat: no evidence records were captured; treat this report as a scan scaffold, not a verified project assessment.")
+        } else if strongCount == 0 {
+            lines.append("- Confidence caveat: no verified, measured, or observed evidence backs this report; conclusions are based on inferred, assumed, or unknown signals.")
+        } else if !weakEvidence.isEmpty {
+            lines.append("- Confidence caveat: \(weakEvidence.count) weak evidence record(s) (\(classificationSummary(for: weakEvidence))) require confirmation before treating conclusions as verified.")
+        }
+
+        if !snapshot.reality.unverified.isEmpty {
+            lines.append("- Unverified scope: \(limitedList(snapshot.reality.unverified)).")
+        }
+
+        if !snapshot.reality.unknowns.isEmpty {
+            lines.append("- Unknowns: \(limitedList(snapshot.reality.unknowns)).")
+        }
+
+        if !snapshot.reality.assumptions.isEmpty {
+            lines.append("- Assumptions: \(limitedList(snapshot.reality.assumptions)).")
+        }
+
+        let staleCount = staleVerification(snapshot.verification).count
+        if staleCount > 0 {
+            lines.append("- Stale evidence caveat: \(staleCount) verified record(s) are stale or expired and should be re-verified.")
+        }
+
+        let contradictionCount = reportConflicts(snapshot.evidence).count
+        if contradictionCount > 0 {
+            lines.append("- Contradiction caveat: \(contradictionCount) source group(s) contain both passing and failing strong evidence.")
+        }
+
+        return lines.isEmpty ? "- No confidence caveats detected from captured local evidence." : lines.joined(separator: "\n")
     }
 
     private func evidenceTierBlock(_ evidence: [Evidence]) -> String {
@@ -151,6 +192,27 @@ public struct ReportEngine: Sendable {
             let sourceSuffix = source.isEmpty ? "" : " · source: \(source)"
             return "- \(item.title) [\(item.classification.rawValue)\(sourceSuffix)]: \(item.detail)"
         }.joined(separator: "\n")
+    }
+
+    private func classificationSummary(for evidence: [Evidence]) -> String {
+        var counts: [EvidenceClassification: Int] = [:]
+        for item in evidence {
+            counts[item.classification, default: 0] += 1
+        }
+
+        return evidenceClassificationOrder
+            .compactMap { classification in
+                let count = counts[classification, default: 0]
+                return count > 0 ? "\(classification.rawValue): \(count)" : nil
+            }
+            .joined(separator: ", ")
+    }
+
+    private func limitedList(_ items: [String], limit: Int = 3) -> String {
+        let visible = items.prefix(limit).joined(separator: "; ")
+        let remaining = items.count - min(items.count, limit)
+        guard remaining > 0 else { return visible }
+        return "\(visible); +\(remaining) more"
     }
 
     private var evidenceClassificationOrder: [EvidenceClassification] {
