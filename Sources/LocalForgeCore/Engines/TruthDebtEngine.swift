@@ -249,3 +249,122 @@ public struct TruthDebtEngine: Sendable {
         area.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
+
+public extension TruthDebtReport {
+    func markdownExport(topGateLimit: Int = 5, actionLimit: Int = 5) -> String {
+        TruthDebtMarkdownFormatter(
+            report: self,
+            topGateLimit: topGateLimit,
+            actionLimit: actionLimit
+        ).render()
+    }
+}
+
+private struct TruthDebtMarkdownFormatter {
+    let report: TruthDebtReport
+    let topGateLimit: Int
+    let actionLimit: Int
+
+    func render() -> String {
+        let gates = report.gates.sorted(by: gatePrecedes)
+        let topGates = Array(gates.prefix(max(0, topGateLimit)))
+        let actions = Array(uniqueActions(from: gates).prefix(max(0, actionLimit)))
+        var lines = [
+            "# Truth Debt Export",
+            "",
+            "- Status: \(safeText(report.status.rawValue))",
+            "- Headline: \(safeText(report.headline))",
+            "- Blockers: \(report.blockers.count)",
+            "- Caveats: \(report.caveats.count)",
+            "- Total gates: \(report.gates.count)",
+            "",
+            "## Top Gates"
+        ]
+
+        if topGates.isEmpty {
+            lines.append("- None")
+        } else {
+            for (index, gate) in topGates.enumerated() {
+                appendGate(gate, index: index + 1, to: &lines)
+            }
+        }
+
+        lines.append("")
+        lines.append("## Actions")
+
+        if actions.isEmpty {
+            lines.append("- None")
+        } else {
+            lines.append(contentsOf: actions.enumerated().map { index, action in
+                "\(index + 1). \(action)"
+            })
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func appendGate(_ gate: TruthDebtGate, index: Int, to lines: inout [String]) {
+        let area = safeText(gate.area, fallback: "")
+        let areaSuffix = area.isEmpty ? "" : " - \(area)"
+        lines.append("\(index). **\(safeText(gate.severity.rawValue))** \(safeText(gate.title))\(areaSuffix)")
+        lines.append("   - Kind: \(safeText(gate.kind.rawValue))")
+        lines.append("   - Blocks release claim: \(gate.blocksReleaseClaim ? "Yes" : "No")")
+        lines.append("   - Detail: \(safeText(gate.detail))")
+        lines.append("   - Action: \(safeText(gate.recommendedAction))")
+        lines.append("   - Source IDs: \(sourceLine(gate.sourceIdentifiers))")
+    }
+
+    private func uniqueActions(from gates: [TruthDebtGate]) -> [String] {
+        var seen = Set<String>()
+        var actions: [String] = []
+
+        for gate in gates {
+            let action = safeText(gate.recommendedAction, fallback: "")
+            guard !action.isEmpty, seen.insert(action).inserted else { continue }
+            actions.append(action)
+        }
+
+        return actions
+    }
+
+    private func sourceLine(_ identifiers: [String]) -> String {
+        let sourceIDs = Set(identifiers.map { safeText($0, fallback: "") }.filter { !$0.isEmpty })
+            .sorted()
+        return sourceIDs.isEmpty ? "None" : sourceIDs.joined(separator: ", ")
+    }
+
+    private func safeText(_ text: String, fallback: String = "Unknown") -> String {
+        let redacted = redact(text)
+        let collapsed = redacted
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        return collapsed.isEmpty ? fallback : collapsed
+    }
+
+    private func redact(_ text: String) -> String {
+        ReportEngine().redact(text).replacingOccurrences(
+            of: #"(?i)\b(token|api[_-]?key|password|secret)\s*[:=]\s*\[REDACTED_SECRET\]"#,
+            with: "[REDACTED_SECRET]",
+            options: .regularExpression
+        )
+    }
+
+    private func gatePrecedes(_ lhs: TruthDebtGate, _ rhs: TruthDebtGate) -> Bool {
+        if lhs.blocksReleaseClaim != rhs.blocksReleaseClaim {
+            return lhs.blocksReleaseClaim && !rhs.blocksReleaseClaim
+        }
+        if lhs.severity != rhs.severity { return lhs.severity < rhs.severity }
+
+        let lhsArea = sortKey(lhs.area)
+        let rhsArea = sortKey(rhs.area)
+        if lhsArea != rhsArea { return lhsArea < rhsArea }
+        if lhs.kind.rawValue != rhs.kind.rawValue { return lhs.kind.rawValue < rhs.kind.rawValue }
+        if lhs.title != rhs.title { return lhs.title < rhs.title }
+        return lhs.id < rhs.id
+    }
+
+    private func sortKey(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}
