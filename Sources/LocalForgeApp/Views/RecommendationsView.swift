@@ -1,4 +1,5 @@
 import LocalForgeCore
+import Foundation
 import SwiftUI
 
 struct RecommendationsView: View {
@@ -99,11 +100,16 @@ struct RecommendationsView: View {
     }
 
     private func summary(_ records: [RecommendationRecord]) -> some View {
-        HStack(spacing: 10) {
+        let evidenceBacked = records.filter { $0.isEvidenceBacked }.count
+        let missingLinks = records.filter { !$0.hasEvidenceLinks }.count
+        let stale = records.filter { $0.isStaleForReview }.count
+
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10)], spacing: 10) {
             StatCell(label: "Open", value: "\(records.filter { $0.approvalState == .open }.count)", color: .orange)
-            StatCell(label: "Safety", value: "\(records.filter { $0.category == .safety }.count)", color: .purple)
-            StatCell(label: "Approved", value: "\(records.filter { $0.approvalState == .approved }.count)", color: .blue)
-            StatCell(label: "Rejected", value: "\(records.filter { $0.approvalState == .rejected }.count)", color: .red)
+            StatCell(label: "Advisory", value: "\(records.count)", color: .blue)
+            StatCell(label: "Evidence", value: "\(evidenceBacked)", color: .indigo)
+            StatCell(label: "No Links", value: "\(missingLinks)", color: missingLinks > 0 ? .orange : .gray)
+            StatCell(label: "Stale", value: "\(stale)", color: stale > 0 ? .orange : .gray)
             StatCell(label: "Complete", value: "\(records.filter { $0.approvalState == .completed }.count)", color: .green)
         }
     }
@@ -136,30 +142,50 @@ private struct RecommendationCard: View {
                     .foregroundStyle(stateColor)
             }
 
+            trustStrip
+
             VStack(alignment: .leading, spacing: 6) {
                 DetailRow(label: "Category", value: record.category.rawValue)
                 DetailRow(label: "Target", value: record.targetPath)
                 DetailRow(label: "Risk", value: record.severity.rawValue)
+                DetailRow(label: "Confidence", value: record.confidencePercentLabel)
                 DetailRow(label: "Evidence", value: record.evidenceSummary)
+                DetailRow(label: "Evidence link", value: record.evidenceLinkLabel)
                 DetailRow(label: "Impact", value: record.impact)
                 DetailRow(label: "Suggested adjustment", value: record.suggestedAdjustment)
                 DetailRow(label: "Warning", value: record.safetyWarning)
                 DetailRow(label: "Rollback", value: record.rollbackNote)
+                DetailRow(label: "Review age", value: "\(record.createdDateLabel); \(record.updatedAgeLabel)")
             }
 
-            TextField("Optional approval/rejection note", text: $note)
+            TextField("Optional review note", text: $note)
                 .textFieldStyle(.roundedBorder)
 
             HStack {
                 Button("Acknowledge") { onState(.acknowledged) }
-                Button("Approve") { onState(.approved) }
-                Button("Reject") { onState(.rejected) }
+                    .help("Records that this local recommendation has been seen.")
+                Button("Approve Review") { onState(.approved) }
+                    .help("Records approval intent only. No automated fix is run.")
+                Button("Reject Review") { onState(.rejected) }
+                    .help("Records a review decision only. No source file is changed.")
                 Spacer()
-                Button("Mark Complete") { onState(.completed) }
+                Button("Mark Review Complete") { onState(.completed) }
+                    .help("Marks the recommendation review complete. This does not apply a patch.")
             }
         }
         .padding()
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var trustStrip: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 8)], alignment: .leading, spacing: 8) {
+            TrustBadge(label: "Local record", systemImage: "folder", color: .teal)
+            TrustBadge(label: "Advisory only", systemImage: "lightbulb", color: .blue)
+            TrustBadge(label: "No auto-fix", systemImage: "hand.raised", color: .orange)
+            TrustBadge(label: record.evidenceBadgeLabel, systemImage: record.evidenceBadgeSymbol, color: record.evidenceBadgeColor)
+            TrustBadge(label: record.stalenessBadgeLabel, systemImage: record.stalenessBadgeSymbol, color: record.stalenessBadgeColor)
+            TrustBadge(label: record.sourceTargetLabel, systemImage: "doc.text", color: record.sourceFilesAffected ? .purple : .gray)
+        }
     }
 
     private var severityColor: Color {
@@ -190,6 +216,24 @@ private struct RecommendationCard: View {
     }
 }
 
+private struct TrustBadge: View {
+    var label: String
+    var systemImage: String
+    var color: Color
+
+    var body: some View {
+        Label(label, systemImage: systemImage)
+            .font(.caption.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(color.opacity(0.14), in: Capsule())
+            .foregroundStyle(color)
+    }
+}
+
 private struct DetailRow: View {
     var label: String
     var value: String
@@ -199,10 +243,127 @@ private struct DetailRow: View {
             Text(label)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
-            Text(value.isEmpty ? "Not recorded" : value)
+            Text(displayValue)
                 .font(.callout)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var displayValue: String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Not recorded" : value
+    }
+}
+
+private extension RecommendationRecord {
+    var hasEvidenceSummary: Bool {
+        !evidenceSummary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var hasEvidenceLinks: Bool {
+        !relatedEvidenceIDs.isEmpty
+    }
+
+    var isEvidenceBacked: Bool {
+        hasEvidenceSummary || hasEvidenceLinks
+    }
+
+    var isStaleForReview: Bool {
+        guard approvalState != .completed, approvalState != .rejected else { return false }
+        return ageInDays(since: updatedAt) >= 30
+    }
+
+    var confidencePercentLabel: String {
+        let normalized = min(max(confidence, 0), 1)
+        return "\(Int((normalized * 100).rounded()))%"
+    }
+
+    var evidenceLinkLabel: String {
+        switch relatedEvidenceIDs.count {
+        case 0:
+            return "No related evidence record linked"
+        case 1:
+            return "1 related evidence record"
+        default:
+            return "\(relatedEvidenceIDs.count) related evidence records"
+        }
+    }
+
+    var evidenceBadgeLabel: String {
+        if hasEvidenceLinks {
+            return "Evidence linked"
+        }
+        if hasEvidenceSummary {
+            return "No evidence link"
+        }
+        return "Missing evidence"
+    }
+
+    var evidenceBadgeSymbol: String {
+        if hasEvidenceLinks {
+            return "link"
+        }
+        if hasEvidenceSummary {
+            return "doc.text"
+        }
+        return "exclamationmark.triangle"
+    }
+
+    var evidenceBadgeColor: Color {
+        if hasEvidenceLinks {
+            return .green
+        }
+        if hasEvidenceSummary {
+            return .orange
+        }
+        return .red
+    }
+
+    var stalenessBadgeLabel: String {
+        if isStaleForReview {
+            return "Stale \(ageToken)"
+        }
+        return "Updated \(ageToken)"
+    }
+
+    var stalenessBadgeSymbol: String {
+        isStaleForReview ? "clock.badge.exclamationmark" : "clock"
+    }
+
+    var stalenessBadgeColor: Color {
+        isStaleForReview ? .orange : .gray
+    }
+
+    var sourceTargetLabel: String {
+        sourceFilesAffected ? "Source target" : "No source target"
+    }
+
+    var createdDateLabel: String {
+        "Created \(DateFormatter.localizedString(from: createdAt, dateStyle: .medium, timeStyle: .short))"
+    }
+
+    var updatedAgeLabel: String {
+        "updated \(ageToken)"
+    }
+
+    private var ageToken: String {
+        let days = ageInDays(since: updatedAt)
+        switch days {
+        case 0:
+            return "today"
+        case 1:
+            return "1d ago"
+        case 2..<30:
+            return "\(days)d ago"
+        case 30..<365:
+            return "\(max(1, days / 30))mo ago"
+        default:
+            return "\(max(1, days / 365))y ago"
+        }
+    }
+
+    private func ageInDays(since date: Date) -> Int {
+        let seconds = max(0, Date().timeIntervalSince(date))
+        return Int(seconds / 86_400)
     }
 }
