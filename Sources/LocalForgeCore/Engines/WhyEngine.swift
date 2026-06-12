@@ -29,10 +29,13 @@ public struct WhyEngine: Sendable {
             sections.append(.init(title: "Negative Contributions", items: negativeRows))
         }
 
+        appendEvidenceProvenance(to: &sections, evidence: evidence)
+        appendContradictions(to: &sections, evidence: evidence, projectName: "Current project")
+
         let recentEvidence = evidence.sorted { $0.createdAt > $1.createdAt }.prefix(5)
         if !recentEvidence.isEmpty {
             let rows = recentEvidence.map { e in
-                WhyPanelRow(label: e.summary.isEmpty ? e.kind.rawValue : e.summary, value: e.area, symbolName: "paperclip")
+                evidenceRow(e, value: e.area)
             }
             sections.append(.init(title: "Evidence", items: Array(rows)))
         }
@@ -73,17 +76,20 @@ public struct WhyEngine: Sendable {
         let linkedEvidence = evidence.filter { risk.linkedEvidenceIDs.contains($0.id) }
         if !linkedEvidence.isEmpty {
             let rows = linkedEvidence.map { e in
-                WhyPanelRow(label: e.summary.isEmpty ? e.kind.rawValue : e.summary, value: e.classification.rawValue, symbolName: "paperclip")
+                evidenceRow(e)
             }
             sections.append(.init(title: "Linked Evidence", items: rows))
+            appendEvidenceProvenance(to: &sections, evidence: linkedEvidence)
+            appendContradictions(to: &sections, evidence: linkedEvidence, projectName: "Linked risk")
         }
 
         let linkedVerification = verification.filter { risk.linkedVerificationIDs.contains($0.id) || risk.linkedVerificationAreas.contains($0.area) }
         if !linkedVerification.isEmpty {
             let rows = linkedVerification.map { v in
-                WhyPanelRow(label: v.area, value: v.state.rawValue, isPositive: v.state == .verified, isNegative: v.state == .failed, symbolName: v.state.symbolName)
+                WhyPanelRow(label: v.area, value: verificationValue(v), isPositive: v.state == .verified && !isStale(v), isNegative: v.state == .failed || isStale(v), symbolName: v.state.symbolName)
             }
             sections.append(.init(title: "Linked Verification", items: rows))
+            appendStaleVerification(to: &sections, verification: linkedVerification)
         }
 
         let linkedDecisions = decisions.filter { risk.linkedDecisionIDs.contains($0.id) }
@@ -125,14 +131,18 @@ public struct WhyEngine: Sendable {
         let linkedEvidence = evidence.filter { $0.area == record.area }
         if !linkedEvidence.isEmpty {
             let rows = linkedEvidence.sorted { $0.createdAt > $1.createdAt }.map { e in
-                WhyPanelRow(label: e.summary.isEmpty ? e.kind.rawValue : e.summary, value: e.classification.rawValue, symbolName: "paperclip")
+                evidenceRow(e)
             }
             sections.append(.init(title: "Evidence (\(linkedEvidence.count))", items: rows))
+            appendEvidenceProvenance(to: &sections, evidence: linkedEvidence)
+            appendContradictions(to: &sections, evidence: linkedEvidence, projectName: "Verification")
         } else {
             sections.append(.init(title: "Evidence", items: [
                 WhyPanelRow(label: "No evidence attached to this area", isNegative: true, symbolName: "exclamationmark.circle")
             ]))
         }
+
+        appendStaleVerification(to: &sections, verification: [record])
 
         if !record.dependsOn.isEmpty {
             let rows = record.dependsOn.map { dep in
@@ -209,23 +219,20 @@ public struct WhyEngine: Sendable {
         assessment: ConfidenceAssessment,
         evidence: [EvidenceRecord]
     ) -> ConfidenceProvenance {
-        var bySource: [ConfidenceSource: Int] = [:]
+        var byClassification: [EvidenceClassification: Int] = [:]
 
         for e in evidence {
-            switch e.classification {
-            case .observed: bySource[.observed, default: 0] += 1
-            case .measured: bySource[.measured, default: 0] += 1
-            case .verified: bySource[.verified, default: 0] += 1
-            case .inferred: bySource[.inferred, default: 0] += 1
-            case .assumed: bySource[.inferred, default: 0] += 1
-            case .unknown: bySource[.unknown, default: 0] += 1
-            }
+            byClassification[e.classification, default: 0] += 1
         }
 
-        let items = ConfidenceSource.allCases.compactMap { source -> ConfidenceProvenanceItem? in
-            let count = bySource[source, default: 0]
+        let items = evidenceClassificationOrder.compactMap { classification -> ConfidenceProvenanceItem? in
+            let count = byClassification[classification, default: 0]
             guard count > 0 else { return nil }
-            return ConfidenceProvenanceItem(source: source, count: count, label: "\(count) \(source.rawValue.lowercased()) record(s)")
+            return ConfidenceProvenanceItem(
+                source: confidenceSource(for: classification),
+                count: count,
+                label: "\(count) \(classification.rawValue.lowercased()) record(s)"
+            )
         }
 
         return ConfidenceProvenance(
@@ -247,15 +254,8 @@ public struct WhyEngine: Sendable {
         var conflicts: [EvidenceConflict] = []
 
         for (area, records) in byArea where !area.isEmpty {
-            let success = records.filter { e in
-                e.classification == .observed || e.classification == .measured || e.classification == .verified
-            }
-            let failure = records.filter { e in
-                e.summary.localizedCaseInsensitiveContains("fail")
-                || e.summary.localizedCaseInsensitiveContains("error")
-                || e.summary.localizedCaseInsensitiveContains("broken")
-                || e.body.localizedCaseInsensitiveContains("fail")
-            }
+            let success = records.filter(isSuccessEvidence)
+            let failure = records.filter(isFailureEvidence)
 
             if !success.isEmpty && !failure.isEmpty {
                 conflicts.append(EvidenceConflict(
@@ -269,5 +269,144 @@ public struct WhyEngine: Sendable {
         }
 
         return conflicts
+    }
+
+    // MARK: - Provenance Helpers
+
+    private var evidenceClassificationOrder: [EvidenceClassification] {
+        [.verified, .measured, .observed, .inferred, .assumed, .unknown]
+    }
+
+    private func appendEvidenceProvenance(to sections: inout [WhyPanelSection], evidence: [EvidenceRecord]) {
+        let rows = evidenceProvenanceRows(for: evidence)
+        guard !rows.isEmpty else { return }
+        sections.append(.init(title: "Evidence Provenance", items: rows))
+    }
+
+    private func evidenceProvenanceRows(for evidence: [EvidenceRecord]) -> [WhyPanelRow] {
+        var counts: [EvidenceClassification: Int] = [:]
+        for record in evidence {
+            counts[record.classification, default: 0] += 1
+        }
+
+        return evidenceClassificationOrder.compactMap { classification in
+            let count = counts[classification, default: 0]
+            guard count > 0 else { return nil }
+            return WhyPanelRow(
+                label: "\(classification.rawValue) evidence",
+                value: "\(count) record(s)",
+                isPositive: classification == .verified || classification == .measured || classification == .observed,
+                isNegative: classification == .assumed || classification == .unknown,
+                symbolName: symbolName(for: classification)
+            )
+        }
+    }
+
+    private func appendStaleVerification(to sections: inout [WhyPanelSection], verification: [VerificationRecord]) {
+        let stale = verification.filter(isStale)
+        guard !stale.isEmpty else { return }
+
+        let rows = stale.map { record in
+            WhyPanelRow(
+                label: record.area,
+                value: "\(record.age.rawValue)\(record.ageDescription.isEmpty ? "" : " · \(record.ageDescription)")",
+                isNegative: true,
+                symbolName: "clock.badge.exclamationmark"
+            )
+        }
+        sections.append(.init(title: "Stale Records", items: rows))
+    }
+
+    private func appendContradictions(to sections: inout [WhyPanelSection], evidence: [EvidenceRecord], projectName: String) {
+        let conflicts = detectConflicts(evidence: evidence, projectID: UUID(), projectName: projectName)
+        guard !conflicts.isEmpty else { return }
+
+        let rows = conflicts.map { conflict in
+            WhyPanelRow(
+                label: conflict.area,
+                value: "\(conflict.successEvidence.count) passing / \(conflict.failureEvidence.count) failing",
+                isNegative: true,
+                symbolName: "exclamationmark.triangle.fill"
+            )
+        }
+        sections.append(.init(title: "Contradictory Evidence", items: rows))
+    }
+
+    private func evidenceRow(_ evidence: EvidenceRecord, value overrideValue: String? = nil) -> WhyPanelRow {
+        let value = overrideValue ?? "\(evidence.classification.rawValue) · \(evidence.kind.rawValue)"
+        return WhyPanelRow(
+            label: evidence.summary.isEmpty ? evidence.kind.rawValue : evidence.summary,
+            value: value,
+            isPositive: evidence.classification == .verified || evidence.classification == .measured || evidence.classification == .observed,
+            isNegative: evidence.classification == .assumed || evidence.classification == .unknown || isFailureEvidence(evidence),
+            symbolName: evidence.kind.symbolName
+        )
+    }
+
+    private func verificationValue(_ record: VerificationRecord) -> String {
+        let age = record.ageDescription
+        guard !age.isEmpty else { return record.state.rawValue }
+        return "\(record.state.rawValue) · \(age)"
+    }
+
+    private func isStale(_ record: VerificationRecord) -> Bool {
+        record.state == .verified && (record.age == .stale || record.age == .expired)
+    }
+
+    private func confidenceSource(for classification: EvidenceClassification) -> ConfidenceSource {
+        switch classification {
+        case .observed: .observed
+        case .measured: .measured
+        case .verified: .verified
+        case .inferred, .assumed: .inferred
+        case .unknown: .unknown
+        }
+    }
+
+    private func symbolName(for classification: EvidenceClassification) -> String {
+        switch classification {
+        case .observed: "eye"
+        case .measured: "chart.bar"
+        case .verified: "checkmark.seal"
+        case .inferred: "wand.and.stars"
+        case .assumed: "questionmark.diamond"
+        case .unknown: "questionmark.circle"
+        }
+    }
+
+    private func isSuccessEvidence(_ evidence: EvidenceRecord) -> Bool {
+        guard isStrongEvidence(evidence.classification), !isFailureEvidence(evidence) else { return false }
+        if evidence.classification == .verified { return true }
+        return containsSuccessSignal(in: "\(evidence.summary) \(evidence.body)")
+    }
+
+    private func isFailureEvidence(_ evidence: EvidenceRecord) -> Bool {
+        guard isStrongEvidence(evidence.classification) else { return false }
+        return containsFailureSignal(in: "\(evidence.summary) \(evidence.body)")
+    }
+
+    private func isStrongEvidence(_ classification: EvidenceClassification) -> Bool {
+        classification == .observed || classification == .measured || classification == .verified
+    }
+
+    private func containsSuccessSignal(in text: String) -> Bool {
+        text.range(
+            of: #"(?i)\b(pass(?:ed|es|ing)?|success(?:ful|fully)?|succeeded|works|working|green|clean|accepted|valid(?:ated)?|verified)\b"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private func containsFailureSignal(in text: String) -> Bool {
+        if text.range(
+            of: #"(?i)\b(no|without|zero|0)\s+(fail(?:ed|ing|s|ure|ures)?|error(?:s)?|crash(?:es|ed)?)\b"#,
+            options: .regularExpression
+        ) != nil {
+            return false
+        }
+
+        return text.range(
+            of: #"(?i)\b(fail(?:ed|ing|s|ure|ures)?|error(?:s)?|broken|crash(?:ed|es)?|timeout|timed out|blocked|regression)\b"#,
+            options: .regularExpression
+        ) != nil
     }
 }
