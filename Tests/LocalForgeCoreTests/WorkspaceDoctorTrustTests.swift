@@ -131,12 +131,77 @@ struct WorkspaceDoctorTrustTests {
         #expect(issue.severity == .high)
     }
 
+    @Test("build and test diagnostic records must retain evidence links")
+    func buildAndTestDiagnosticRecordsWithMissingEvidenceAreFlagged() throws {
+        let pid = UUID()
+        let missingBuildEvidenceID = UUID()
+        let missingTestEvidenceID = UUID()
+        let record = project(
+            id: pid,
+            buildHistory: [
+                BuildRecord(
+                    buildType: .swiftBuild,
+                    result: .success,
+                    linkedEvidenceIDs: [missingBuildEvidenceID]
+                )
+            ],
+            testRecords: [
+                TestRecord(
+                    name: "swift test",
+                    kind: .automated,
+                    outcome: .passed,
+                    linkedEvidenceIDs: [missingTestEvidenceID]
+                )
+            ]
+        )
+
+        let report = WorkspaceDoctorEngine().diagnose(records: [record], projectNames: [pid: "App"])
+        let issue = try #require(report.issues.first { $0.title.contains("build/test diagnostic record") })
+
+        #expect(issue.kind == .missingReference)
+        #expect(issue.severity == .high)
+        #expect(issue.title.contains("2"))
+        #expect(issue.recommendation.contains("linkedEvidenceIDs"))
+    }
+
+    @Test("build and test diagnostic records with existing evidence stay trusted")
+    func buildAndTestDiagnosticRecordsWithEvidenceAreTrusted() {
+        let pid = UUID()
+        let buildEvidence = EvidenceRecord(area: "Build", summary: "Swift build passed")
+        let testEvidence = EvidenceRecord(area: "Tests", summary: "Swift test passed")
+        let record = project(
+            id: pid,
+            evidence: [buildEvidence, testEvidence],
+            buildHistory: [
+                BuildRecord(
+                    buildType: .swiftBuild,
+                    result: .success,
+                    linkedEvidenceIDs: [buildEvidence.id]
+                )
+            ],
+            testRecords: [
+                TestRecord(
+                    name: "swift test",
+                    kind: .automated,
+                    outcome: .passed,
+                    linkedEvidenceIDs: [testEvidence.id]
+                )
+            ]
+        )
+
+        let report = WorkspaceDoctorEngine().diagnose(records: [record], projectNames: [pid: "App"])
+
+        #expect(!report.issues.contains { $0.title.contains("build/test diagnostic record") })
+    }
+
     private func project(
         id: UUID,
         verification: [VerificationRecord]? = nil,
         evidence: [EvidenceRecord]? = nil,
         risks: [RiskRecord]? = nil,
-        recommendations: [RecommendationRecord]? = nil
+        recommendations: [RecommendationRecord]? = nil,
+        buildHistory: [BuildRecord]? = nil,
+        testRecords: [TestRecord]? = nil
     ) -> PersistedProjectRecord {
         PersistedProjectRecord(
             id: id,
@@ -148,6 +213,8 @@ struct WorkspaceDoctorTrustTests {
             verification: verification,
             evidence: evidence,
             risks: risks,
+            buildHistory: buildHistory,
+            testRecords: testRecords,
             recommendations: recommendations
         )
     }
