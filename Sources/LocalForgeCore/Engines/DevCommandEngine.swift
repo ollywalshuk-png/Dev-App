@@ -10,11 +10,12 @@ public struct DevCommandEngine: Sendable {
         author: String = ""
     ) -> DevToolsProvenanceRecords {
         let output = sanitizedOutput(result.output)
+        let evidenceBody = evidenceBody(for: result, output: output)
         let evidence = EvidenceRecord(
             area: result.command.verificationArea,
             kind: result.command.kind == .environmentCapture ? .environment : .logExcerpt,
             summary: "\(result.command.title): \(result.status.rawValue)",
-            body: output,
+            body: evidenceBody,
             classification: evidenceClassification(for: result.status),
             author: author,
             createdAt: result.endedAt
@@ -22,8 +23,8 @@ public struct DevCommandEngine: Sendable {
 
         return DevToolsProvenanceRecords(
             evidence: evidence,
-            build: buildRecord(for: result, output: output, evidenceID: evidence.id),
-            test: testRecord(for: result, output: output, evidenceID: evidence.id, author: author),
+            build: buildRecord(for: result, output: evidenceBody, evidenceID: evidence.id),
+            test: testRecord(for: result, output: evidenceBody, evidenceID: evidence.id, author: author),
             environment: environmentSnapshot(for: result, output: output)
         )
     }
@@ -294,6 +295,42 @@ public struct DevCommandEngine: Sendable {
         }
     }
 
+    private func evidenceBody(for result: DevToolsCommandResult, output: String) -> String {
+        guard let signal = commandEvidenceSignal(for: result) else { return output }
+        guard !output.contains("[output truncated at \(Self.maxOutputBytes) bytes]") else { return output }
+        guard !output.isEmpty else { return signal }
+        return truncatedOutput("\(signal)\n\n\(output)")
+    }
+
+    private func commandEvidenceSignal(for result: DevToolsCommandResult) -> String? {
+        guard result.command.kind == .swiftBuild || result.command.kind == .swiftTest else { return nil }
+
+        let status: String
+        let caveat: String
+        switch result.status {
+        case .success:
+            status = "succeeded"
+            caveat = "Local command output supports \(result.command.verificationArea) but does not by itself mark verification or release readiness as passed."
+        case .failure:
+            status = "failed"
+            caveat = "Local command output records a failed command; fix and rerun before treating \(result.command.verificationArea) as release-supporting evidence."
+        case .timeout:
+            status = "timed out"
+            caveat = "Local command output records an incomplete command; rerun before treating \(result.command.verificationArea) as release-supporting evidence."
+        case .blocked:
+            status = "was blocked"
+            caveat = "The preset was blocked before execution; this is not proof about \(result.command.verificationArea)."
+        }
+
+        return "Dev Tools evidence signal: \(result.command.title) \(status)\(exitCodeLabel(for: result)). \(caveat)"
+    }
+
+    private func exitCodeLabel(for result: DevToolsCommandResult) -> String {
+        guard result.status == .success || result.status == .failure else { return "" }
+        guard let exitCode = result.exitCode else { return " (no exit code captured)" }
+        return " (exit code \(exitCode))"
+    }
+
     private var swiftEnvironment: [String] {
         [
             "DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer",
@@ -341,19 +378,23 @@ public struct DevCommandEngine: Sendable {
 
     private func sanitizedOutput(_ text: String) -> String {
         let redacted = ReportEngine().redact(text)
-        guard redacted.utf8.count > Self.maxOutputBytes else { return redacted }
+        return truncatedOutput(redacted)
+    }
 
-        var end = redacted.startIndex
+    private func truncatedOutput(_ text: String) -> String {
+        guard text.utf8.count > Self.maxOutputBytes else { return text }
+
+        var end = text.startIndex
         var byteCount = 0
-        while end < redacted.endIndex {
-            let next = redacted.index(after: end)
-            let charByteCount = redacted[end].utf8.count
+        while end < text.endIndex {
+            let next = text.index(after: end)
+            let charByteCount = text[end].utf8.count
             guard byteCount + charByteCount <= Self.maxOutputBytes else { break }
             byteCount += charByteCount
             end = next
         }
 
-        return String(redacted[..<end]) + "\n\n[output truncated at \(Self.maxOutputBytes) bytes]"
+        return String(text[..<end]) + "\n\n[output truncated at \(Self.maxOutputBytes) bytes]"
     }
 }
 
