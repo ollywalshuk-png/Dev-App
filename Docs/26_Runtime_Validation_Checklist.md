@@ -16,11 +16,23 @@ re-run it after any signing, persistence, or navigation change.
 
 Latest machine-observed baseline:
 
+- 2026-06-12 fork release `v0.0.3`: source baseline is upstream `main` at
+  `beaec7cfdcf7d5066d55d29d80b58b95c71fe16a`.
 - 2026-06-12: Xcode-toolchain `swift build` passed.
-- 2026-06-12: Xcode-toolchain `swift test` passed with 82 Swift Testing tests across 5 suites.
+- 2026-06-12: Xcode-toolchain `swift test` passed with 116 tests across
+  12 suites.
 - 2026-06-12: `./script/build_and_run.sh --verify` passed.
 - 2026-06-12: `codesign --verify --deep --strict --verbose=2 dist/LocalForge.app` passed.
-- The verified local bundle is ad-hoc signed. Developer ID signing, notarisation, stapling, and Gatekeeper distribution acceptance are Phase 11 work.
+- 2026-06-12: `LocalForge-v0.0.3-macOS-notarized.zip` exists on the
+  `boggspa/Dev-App` fork release only; SHA-256
+  `a5c10717ff75d7b5c2c6d9c076c2d13c7eba3d0578e9208439252ec5f45f905a`.
+- 2026-06-12 fork release status: Developer ID Application signing recorded
+  for `Christopher Izatt (8CZML8FK2D)`, Apple notarization accepted
+  (`9834fb39-05f1-4725-8961-9cfe5bc853ad`), stapler validation passed, and
+  Gatekeeper assessment accepted.
+- Local development bundles may still be ad-hoc signed. Official upstream
+  release publication still requires write permission on
+  `ollywalshuk-png/Dev-App` or an upstream maintainer handoff.
 
 ---
 

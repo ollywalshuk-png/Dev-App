@@ -2,18 +2,36 @@
 
 Date: 2026-06-12
 
-Status: Phase 11 planning baseline. Local development builds are validated, but
-the app is not distribution-ready.
+Status: Phase 11 baseline after the v0.0.3 fork release. A notarised macOS
+artifact exists on the `boggspa/Dev-App` fork release; no notarised artifact is
+published as an upstream `ollywalshuk-png/Dev-App` release.
 
 ## Current Release Position
 
-- `./script/build_and_run.sh --verify` builds and bundles the local app.
-- The local bundle is ad-hoc signed for development verification.
-- `codesign --verify --deep --strict dist/LocalForge.app` passes.
-- Developer ID signing is not configured.
-- Notarisation credentials are not configured.
-- Stapling and Gatekeeper distribution acceptance are not yet validated.
-- Clean-machine verification is not yet complete.
+- Source baseline: upstream `main` at
+  `beaec7cfdcf7d5066d55d29d80b58b95c71fe16a`.
+- Fork release: `boggspa/Dev-App` tag `v0.0.3`, targeting the same upstream
+  commit.
+- `swift build --cache-path .build/swiftpm-cache` passed.
+- `swift test --cache-path .build/swiftpm-cache` passed with 116 tests across
+  12 suites.
+- `./script/build_and_run.sh --verify` passed.
+- `codesign --verify --deep --strict --verbose=2 dist/LocalForge.app` passed.
+- `script/release_manifest.sh --check --zip dist/LocalForge-v0.0.3-macOS-notarized.zip` passed.
+- Fork artifact:
+  `LocalForge-v0.0.3-macOS-notarized.zip` on `boggspa/Dev-App` only, SHA-256
+  `a5c10717ff75d7b5c2c6d9c076c2d13c7eba3d0578e9208439252ec5f45f905a`.
+- Release build signed with Developer ID Application:
+  `Christopher Izatt (8CZML8FK2D)`.
+- Apple notarization accepted:
+  `9834fb39-05f1-4725-8961-9cfe5bc853ad`.
+- Stapler validation passed.
+- Gatekeeper assessment accepted.
+- Clean-machine verification remains separate from the recorded v0.0.3 release
+  evidence.
+- Official upstream release publication still requires write permission on
+  Olly's `ollywalshuk-png/Dev-App` repository, or an upstream maintainer to
+  publish a handoff artifact.
 
 ## Release Build Checklist
 
