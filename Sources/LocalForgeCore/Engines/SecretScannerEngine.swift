@@ -69,12 +69,15 @@ public struct SecretScannerEngine: Sendable {
             "swift", "m", "mm", "h", "hpp", "cpp", "c",
             "js", "ts", "tsx", "jsx", "py", "rb", "rs", "go", "kt", "java", "php",
             "sh", "bash", "zsh", "env", "json", "yml", "yaml", "toml", "ini",
-            "properties", "xcconfig", "plist", "xml", "md"
+            "properties", "xcconfig", "plist", "xml", "md", "pem", "key", "p8"
         ]
     }
 
     private var explicitFileNames: Set<String> {
-        [".env", ".env.local", ".env.development", ".env.production", ".npmrc", ".netrc"]
+        [
+            ".env", ".env.local", ".env.development", ".env.production", ".npmrc", ".netrc",
+            "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"
+        ]
     }
 
     private var excludedNames: Set<String> {
@@ -121,8 +124,8 @@ public struct SecretScannerEngine: Sendable {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isPlaceholderOrRedacted(trimmed) else { return nil }
 
-        if matches(#"-----BEGIN (?:RSA |EC |DSA |OPENSSH |)?PRIVATE KEY-----"#, in: trimmed, caseInsensitive: false) {
-            return (.privateKeyMaterial, "private-key header")
+        if matches(privateKeyBoundaryPattern, in: trimmed, caseInsensitive: false) {
+            return (.privateKeyMaterial, "private-key boundary")
         }
 
         if matches(#"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"#, in: trimmed, caseInsensitive: false)
@@ -134,6 +137,14 @@ public struct SecretScannerEngine: Sendable {
             return (.embeddedCredential, "URL with embedded credentials")
         }
 
+        if matches(npmrcAuthTokenPattern, in: trimmed, caseInsensitive: true) {
+            return (.credentialAssignment, "npmrc auth token")
+        }
+
+        if matches(bearerAssignmentPattern, in: trimmed, caseInsensitive: true) {
+            return (.credentialAssignment, "bearer token assignment")
+        }
+
         if matches(assignmentPattern, in: trimmed, caseInsensitive: true) {
             return (.credentialAssignment, "credential-like assignment")
         }
@@ -141,8 +152,29 @@ public struct SecretScannerEngine: Sendable {
         return nil
     }
 
+    private var privateKeyBoundaryPattern: String {
+        #"-----(?:BEGIN|END) (?:RSA |EC |DSA |OPENSSH |)?PRIVATE KEY-----"#
+    }
+
+    private var npmrcAuthTokenPattern: String {
+        #"(?://[^\s:=]+(?::\d+)?/?:)?_authToken\s*=\s*"# + longSecretValuePattern
+    }
+
+    private var bearerAssignmentPattern: String {
+        #"["']?\b(?:authorization|auth[_-]?header)\b["']?\s*[:=]\s*["']?Bearer\s+"# + longSecretValuePattern
+            + #"|["']?\bbearer[_-]?token\b["']?\s*[:=]\s*["']?(?:Bearer\s+)?"# + longSecretValuePattern
+    }
+
     private var assignmentPattern: String {
-        #"\b(?:password|passwd|pwd|api[_-]?(?:key|token)|access[_-]?token|refresh[_-]?token|secret|token|client[_-]?secret|notary[_-]?password|app[_-]?specific[_-]?password)\b\s*[:=]\s*["']?[^"'\s<>]{8,}"#
+        #"["']?\b(?:password|passwd|pwd|api[_-]?(?:key|token)|auth[_-]?token|access[_-]?token|refresh[_-]?token|secret|token|client[_-]?secret|notary[_-]?password|app[_-]?specific[_-]?password)\b["']?\s*[:=]\s*["']?"# + secretValuePattern
+    }
+
+    private var secretValuePattern: String {
+        #"(?=[A-Za-z0-9._~+/=-]*[0-9._~+/=-])[A-Za-z0-9._~+/=-]{8,}"#
+    }
+
+    private var longSecretValuePattern: String {
+        #"(?=[A-Za-z0-9._~+/=-]*[0-9._~+/=-])[A-Za-z0-9._~+/=-]{16,}"#
     }
 
     private func isPlaceholderOrRedacted(_ line: String) -> Bool {
@@ -154,6 +186,8 @@ public struct SecretScannerEngine: Sendable {
             || lowered.contains("placeholder")
             || lowered.contains("changeme")
             || lowered.contains("example")
+            || lowered.contains("${")
+            || lowered.contains("$(")
     }
 
     private func redactedPreview(for line: String) -> String {
@@ -161,8 +195,10 @@ public struct SecretScannerEngine: Sendable {
         preview = replace(#"(https?://)[^/\s:@]+:[^/\s:@]+@"#, in: preview, with: "$1<redacted>@")
         preview = replace(#"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"#, in: preview, with: "<redacted-provider-token>", caseInsensitive: false)
         preview = replace(#"gh[pousr]_[A-Za-z0-9_]{24,}"#, in: preview, with: "<redacted-provider-token>", caseInsensitive: false)
-        preview = replace(#"(["']?)[^"'\s<>]{8,}(["']?)$"#, in: preview, with: "$1<redacted>$2")
-        preview = replace(#"-----BEGIN (?:RSA |EC |DSA |OPENSSH |)?PRIVATE KEY-----"#, in: preview, with: "-----BEGIN <redacted> PRIVATE KEY-----", caseInsensitive: false)
+        preview = replace(#"((?://[^\s:=]+(?::\d+)?/?:)?_authToken\s*=\s*)[A-Za-z0-9._~+/=-]{8,}"#, in: preview, with: "$1<redacted>")
+        preview = replace(#"((?:["']?\b(?:authorization|auth[_-]?header)\b["']?\s*[:=]\s*["']?Bearer\s+)|(?:["']?\bbearer[_-]?token\b["']?\s*[:=]\s*["']?(?:Bearer\s+)?))[A-Za-z0-9._~+/=-]{8,}"#, in: preview, with: "$1<redacted>")
+        preview = replace(#"(["']?\b(?:password|passwd|pwd|api[_-]?(?:key|token)|auth[_-]?token|access[_-]?token|refresh[_-]?token|secret|token|client[_-]?secret|notary[_-]?password|app[_-]?specific[_-]?password)\b["']?\s*[:=]\s*["']?)[A-Za-z0-9._~+/=-]{8,}"#, in: preview, with: "$1<redacted>")
+        preview = replace(#"-----(BEGIN|END) (?:RSA |EC |DSA |OPENSSH |)?PRIVATE KEY-----"#, in: preview, with: "-----$1 <redacted> PRIVATE KEY-----", caseInsensitive: false)
 
         if preview.count > 160 {
             return String(preview.prefix(157)) + "..."
