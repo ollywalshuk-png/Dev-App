@@ -147,6 +147,14 @@ private struct WorkspaceTruthTab: View {
                     Text("Last scan \(snapshot.scannedAt.formatted(date: .abbreviated, time: .shortened))")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                    Button {
+                        copyTruthBrief(snapshot: snapshot)
+                    } label: {
+                        Label("Copy Truth Brief", systemImage: "doc.on.doc")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Copy the Reality score, confidence, evidence, blockers, score pressure, and next action")
                 }
             }
             ScoreTrack(value: snapshot.reality.score, color: scoreColor)
@@ -422,6 +430,87 @@ private struct WorkspaceTruthTab: View {
         if blockers > 0 || failed > 0 { return .red }
         if noEvidence || unknown > 0 { return .orange }
         return .green
+    }
+
+    private func copyTruthBrief(snapshot: RepoSnapshot) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(truthBriefMarkdown(snapshot: snapshot), forType: .string)
+    }
+
+    private func truthBriefMarkdown(snapshot: RepoSnapshot) -> String {
+        let projectID = store.selectedProjectID
+        let evidence = store.evidence(for: projectID)
+        let risks = store.risks(for: projectID)
+        let assumptions = store.assumptions(for: projectID)
+        let summary = snapshot.verificationSummary
+        let confidence = store.selectedConfidence
+        let health = store.selectedRegisterHealth
+        let breakdown = store.selectedRealityBreakdown
+        let strongEvidence = evidence.filter { isStrongEvidence($0.classification) }.count
+        let openBlockers = risks.filter(\.isReleaseBlocking).count
+        let activeAssumptions = assumptions.filter { $0.status == .active }.count
+        let staleVerified = staleVerifiedCount(snapshot)
+        let registerCoverage = registerCoverageScore(health)
+        let positivePressure = markdownList(
+            breakdown.positives.prefix(5).map { "\($0.label) (+\($0.delta))" },
+            empty: "None recorded"
+        )
+        let negativePressure = markdownList(
+            breakdown.negatives.prefix(5).map { "\($0.label) (\($0.delta))" },
+            empty: "None recorded"
+        )
+
+        return """
+        # LocalForge Truth Brief
+
+        Project: \(store.selectedProject?.name ?? snapshot.project.name)
+        Generated: \(Date().formatted(date: .abbreviated, time: .shortened))
+        Last scan: \(snapshot.scannedAt.formatted(date: .abbreviated, time: .shortened))
+
+        ## Scores
+
+        - Reality: \(snapshot.reality.score)% - \(snapshot.reality.currentState)
+        - Confidence: \(confidence.score)% - \(confidence.label)
+        - Register coverage: \(registerCoverage)%
+        - Verification: \(summary.verified) verified, \(summary.inProgress) in progress, \(summary.failed) failed, \(summary.unknown) unknown
+        - Evidence: \(evidence.count) total, \(strongEvidence) strong
+
+        ## Stress Flags
+
+        - Release blockers: \(openBlockers)
+        - Failed verification areas: \(summary.failed)
+        - Unknown verification areas: \(summary.unknown)
+        - Stale verified areas: \(staleVerified)
+        - Active assumptions: \(activeAssumptions)
+
+        ## Score Pressure
+
+        Positive:
+        \(positivePressure)
+
+        Negative:
+        \(negativePressure)
+
+        ## Top Risks
+
+        \(markdownList(snapshot.reality.topRisks.prefix(5), empty: "None recorded"))
+
+        ## Unverified In-Scope Areas
+
+        \(markdownList(snapshot.reality.unverified.prefix(8), empty: "None recorded"))
+
+        ## Next Action
+
+        \(snapshot.reality.nextAction)
+
+        Safety: This brief is copied from LocalForge's local records only. It does not change the project or repository.
+        """
+    }
+
+    private func markdownList<S: Sequence>(_ items: S, empty: String) -> String where S.Element == String {
+        let values = Array(items)
+        guard !values.isEmpty else { return "- \(empty)" }
+        return values.map { "- \($0)" }.joined(separator: "\n")
     }
 }
 
