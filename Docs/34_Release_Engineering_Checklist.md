@@ -65,6 +65,11 @@ published as an upstream `ollywalshuk-png/Dev-App` release.
   commit, optional zip SHA-256, codesign verification summary, and stapler
   validation result without signing, stapling, uploading, or requiring
   credentials.
+- Freeze the final distributable and record its SHA-256 before upload. After
+  publication, download the GitHub Release asset into a clean directory and
+  prove it matches the pre-upload digest. Use
+  `Docs/42_Release_Artifact_Trust_Runbook.md` for the exact commands and
+  no-secret evidence boundary.
 - Confirm `dist/LocalForge.app` launches and the human UI smoke checklist is complete.
 
 ## Developer ID Signing Preparation
@@ -153,3 +158,5 @@ Release engineering remains approval-gated. No script should silently:
 - Commit or push release changes.
 - Modify user projects.
 - Upload or transmit release integrity manifests.
+- Treat notarisation as proof that GitHub is serving the intended asset; the
+  downloaded asset hash must match the final pre-upload hash.

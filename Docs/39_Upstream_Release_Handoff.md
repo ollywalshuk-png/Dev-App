@@ -49,6 +49,9 @@ Provide the upstream maintainer with:
 - Intended upstream version, tag, artifact filename, and release title.
 - Final artifact SHA-256 generated after the zip, dmg, or other distributable is
   closed.
+- Artifact trust proof from `Docs/42_Release_Artifact_Trust_Runbook.md`: the
+  pre-upload SHA-256, post-upload downloaded SHA-256, and exact comparison
+  result.
 - Sanitized notarisation success summary, including date and request/result
   status.
 - Stapler validation summary for the final `.app` bundle.
@@ -82,8 +85,9 @@ Provide the upstream maintainer with:
   checks.
 - Publish the upstream release with the fork release notes and include the
   SHA-256 digest in the release body.
-- After publishing, download the upstream asset and repeat the SHA-256,
-  stapler, Gatekeeper, and launch checks against the downloaded asset.
+- After publishing, use `Docs/42_Release_Artifact_Trust_Runbook.md` to download
+  the upstream asset from GitHub, compare it with the pre-upload SHA-256, and
+  repeat stapler, Gatekeeper, and launch checks against the downloaded asset.
 
 ## Anti-Patterns
 
@@ -95,6 +99,8 @@ Provide the upstream maintainer with:
   without regenerating and revalidating the digest.
 - Treating notarisation success as a substitute for stapler, Gatekeeper, and
   clean-machine launch checks.
+- Treating a successful GitHub upload as proof of asset identity without
+  downloading the release asset and comparing SHA-256 digests.
 - Copying fork release notes while dropping known caveats or unresolved release
   blockers.
 - Publishing from an unreviewed fork branch or ambiguous commit.
