@@ -268,14 +268,24 @@ public struct TruthEngine: Sendable {
             )
         }
 
-        // Strong evidence is the dominant factor.
-        let strong = evidenceForConfidence.filter { [EvidenceClassification.observed, .measured, .verified].contains($0.classification) }
-        let weak = evidenceForConfidence.filter { $0.classification == .assumed || $0.classification == .unknown }
+        // Strong evidence is the dominant factor, but duplicate rows must not
+        // make confidence look better than the underlying proof.
+        let strong = uniqueConfidenceEvidence(
+            evidenceForConfidence.filter { isStrongConfidenceEvidence($0.classification) }
+        )
+        let weak = uniqueConfidenceEvidence(
+            evidenceForConfidence.filter { $0.classification == .assumed || $0.classification == .unknown }
+        )
         if !strong.isEmpty {
-            let d = min(50, strong.count * 5)
+            let strongSignalCount = cappedStrongConfidenceSignalCount(
+                strong,
+                inScopeAreaKeys: inScopeAreaKeys,
+                inScopeVerificationAreaByID: inScopeVerificationAreaByID
+            )
+            let d = min(50, strongSignalCount * 5)
             score += d
             let scope = inScopeAreaKeys.isEmpty ? "" : "in-scope "
-            items.append(.init(label: "\(strong.count) \(scope)strong evidence record(s)", delta: d))
+            items.append(.init(label: "\(strongSignalCount) unique \(scope)strong evidence signal(s)", delta: d))
         }
         if !weak.isEmpty {
             let d = -min(15, weak.count * 3)
@@ -296,6 +306,18 @@ public struct TruthEngine: Sendable {
             let pct = Int(Double(coveredAreaKeys.count) / Double(inScopeAreaKeys.count) * 25)
             score += pct
             items.append(.init(label: "Evidence covers \(coveredAreaKeys.count)/\(inScopeAreaKeys.count) in-scope area(s)", delta: pct))
+        }
+
+        let conflictAreaCount = confidenceConflictAreaCount(
+            evidence: evidenceForConfidence,
+            verification: snapshot.verification,
+            inScopeAreaKeys: inScopeAreaKeys,
+            inScopeVerificationAreaByID: inScopeVerificationAreaByID
+        )
+        if conflictAreaCount > 0 {
+            let d = -min(25, conflictAreaCount * 10)
+            score += d
+            items.append(.init(label: "\(conflictAreaCount) contradictory confidence area(s)", delta: d))
         }
 
         // Recency: fresh verified records lift confidence.
@@ -334,6 +356,104 @@ public struct TruthEngine: Sendable {
         return ConfidenceAssessment(score: score, label: label, summary: summary, contributions: items)
     }
 
+    private func uniqueConfidenceEvidence(_ evidence: [EvidenceRecord]) -> [EvidenceRecord] {
+        var seen = Set<String>()
+        return evidence.filter { record in
+            seen.insert(confidenceEvidenceFingerprint(record)).inserted
+        }
+    }
+
+    private func confidenceEvidenceFingerprint(_ evidence: EvidenceRecord) -> String {
+        [
+            evidence.classification.rawValue,
+            evidence.kind.rawValue,
+            normalizedArea(evidence.area),
+            normalizedText(evidence.summary),
+            normalizedText(evidence.body),
+            normalizedText(evidence.attachmentPath),
+            evidence.linkedID?.uuidString ?? "",
+            evidence.linkedVerificationIDs.map(\.uuidString).sorted().joined(separator: ","),
+        ].joined(separator: "|")
+    }
+
+    private func cappedStrongConfidenceSignalCount(
+        _ evidence: [EvidenceRecord],
+        inScopeAreaKeys: Set<String>,
+        inScopeVerificationAreaByID: [UUID: String]
+    ) -> Int {
+        var countsByArea: [String: Int] = [:]
+        for record in evidence {
+            let keys = confidenceAreaKeys(
+                for: record,
+                inScopeAreaKeys: inScopeAreaKeys,
+                inScopeVerificationAreaByID: inScopeVerificationAreaByID
+            )
+            for key in keys {
+                countsByArea[key, default: 0] += 1
+            }
+        }
+        return countsByArea.values.reduce(0) { $0 + min($1, 5) }
+    }
+
+    private func confidenceConflictAreaCount(
+        evidence: [EvidenceRecord],
+        verification: [VerificationRecord],
+        inScopeAreaKeys: Set<String>,
+        inScopeVerificationAreaByID: [UUID: String]
+    ) -> Int {
+        let statesByArea = Dictionary(grouping: verification, by: { normalizedArea($0.area) })
+            .mapValues { Set($0.map(\.state)) }
+        var signalsByArea: [String: (success: Bool, failure: Bool)] = [:]
+
+        for record in uniqueConfidenceEvidence(evidence).filter({ isStrongConfidenceEvidence($0.classification) }) {
+            let keys = confidenceAreaKeys(
+                for: record,
+                inScopeAreaKeys: inScopeAreaKeys,
+                inScopeVerificationAreaByID: inScopeVerificationAreaByID
+            )
+            let success = isConfidenceSuccessEvidence(record)
+            let failure = isConfidenceFailureEvidence(record)
+            for key in keys {
+                signalsByArea[key, default: (false, false)].success = signalsByArea[key, default: (false, false)].success || success
+                signalsByArea[key, default: (false, false)].failure = signalsByArea[key, default: (false, false)].failure || failure
+            }
+        }
+
+        var conflictAreas = Set<String>()
+        for (areaKey, signals) in signalsByArea {
+            let states = statesByArea[areaKey, default: []]
+            if signals.success && signals.failure {
+                conflictAreas.insert(areaKey)
+            }
+            if signals.failure && states.contains(.verified) {
+                conflictAreas.insert(areaKey)
+            }
+            if signals.success && states.contains(.failed) {
+                conflictAreas.insert(areaKey)
+            }
+            if states.contains(.verified) && states.contains(.failed) {
+                conflictAreas.insert(areaKey)
+            }
+        }
+
+        return conflictAreas.count
+    }
+
+    private func confidenceAreaKeys(
+        for evidence: EvidenceRecord,
+        inScopeAreaKeys: Set<String>,
+        inScopeVerificationAreaByID: [UUID: String]
+    ) -> Set<String> {
+        let covered = Set(coveredConfidenceAreaKeys(
+            for: evidence,
+            inScopeAreaKeys: inScopeAreaKeys,
+            inScopeVerificationAreaByID: inScopeVerificationAreaByID
+        ))
+        if !covered.isEmpty { return covered }
+        let areaKey = normalizedArea(evidence.area)
+        return areaKey.isEmpty ? [] : [areaKey]
+    }
+
     private func evidenceCountsForConfidence(
         _ evidence: EvidenceRecord,
         inScopeAreaKeys: Set<String>,
@@ -369,6 +489,48 @@ public struct TruthEngine: Sendable {
 
     private func normalizedArea(_ area: String) -> String {
         area.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func normalizedText(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .lowercased()
+    }
+
+    private func isStrongConfidenceEvidence(_ classification: EvidenceClassification) -> Bool {
+        classification == .observed || classification == .measured || classification == .verified
+    }
+
+    private func isConfidenceSuccessEvidence(_ evidence: EvidenceRecord) -> Bool {
+        guard isStrongConfidenceEvidence(evidence.classification), !isConfidenceFailureEvidence(evidence) else { return false }
+        if evidence.classification == .verified { return true }
+        return containsConfidenceSuccessSignal(in: "\(evidence.summary) \(evidence.body)")
+    }
+
+    private func isConfidenceFailureEvidence(_ evidence: EvidenceRecord) -> Bool {
+        guard isStrongConfidenceEvidence(evidence.classification) else { return false }
+        return containsConfidenceFailureSignal(in: "\(evidence.summary) \(evidence.body)")
+    }
+
+    private func containsConfidenceSuccessSignal(in text: String) -> Bool {
+        text.range(
+            of: #"(?i)\b(pass(?:ed|es|ing)?|success(?:ful|fully)?|succeeded|works|working|green|clean|accepted|valid(?:ated)?|verified)\b"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private func containsConfidenceFailureSignal(in text: String) -> Bool {
+        if text.range(
+            of: #"(?i)\b(no|without|zero|0)\s+(fail(?:ed|ing|s|ure|ures)?|error(?:s)?|crash(?:es|ed)?)\b"#,
+            options: .regularExpression
+        ) != nil {
+            return false
+        }
+
+        return text.range(
+            of: #"(?i)\b(fail(?:ed|ing|s|ure|ures)?|error(?:s)?|broken|crash(?:ed|es)?|timeout|timed out|blocked|regression)\b"#,
+            options: .regularExpression
+        ) != nil
     }
 
     // MARK: - Register health

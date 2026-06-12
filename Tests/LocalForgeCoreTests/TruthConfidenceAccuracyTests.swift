@@ -39,9 +39,54 @@ struct TruthConfidenceAccuracyTests {
 
         #expect(backed.score > baseline.score)
         #expect(backed.contributions.contains {
-            $0.delta > 0 && $0.label == "2 in-scope strong evidence record(s)"
+            $0.delta > 0 && $0.label == "2 unique in-scope strong evidence signal(s)"
         })
         #expect(backed.contributions.contains { $0.label == "Evidence covers 2/2 in-scope area(s)" })
+    }
+
+    @Test("duplicate strong evidence cannot inflate confidence")
+    func duplicateStrongEvidenceCannotInflateConfidence() {
+        let snapshot = releaseSnapshot()
+        let baselineEvidence = [
+            EvidenceRecord(area: "Build", summary: "Build log captured", classification: .observed),
+            EvidenceRecord(area: "Automated Tests", summary: "Test output measured", classification: .measured),
+        ]
+        let baseline = TruthEngine().confidence(snapshot: snapshot, evidence: baselineEvidence, assumptions: [])
+        let padded = TruthEngine().confidence(
+            snapshot: snapshot,
+            evidence: baselineEvidence + Array(repeating: baselineEvidence[0], count: 20),
+            assumptions: []
+        )
+
+        #expect(padded.score == baseline.score)
+        #expect(padded.contributions.contains {
+            $0.delta > 0 && $0.label == "2 unique in-scope strong evidence signal(s)"
+        })
+    }
+
+    @Test("conflicting strong evidence cannot raise confidence")
+    func conflictingStrongEvidenceCannotRaiseConfidence() {
+        let snapshot = releaseSnapshot(verification: [
+            VerificationRecord(area: "Build", state: .verified),
+            VerificationRecord(area: "Automated Tests", state: .verified),
+        ])
+        let baselineEvidence = [
+            EvidenceRecord(area: "Build", summary: "Build log captured", classification: .observed),
+            EvidenceRecord(area: "Automated Tests", summary: "Test output measured", classification: .measured),
+        ]
+        let baseline = TruthEngine().confidence(snapshot: snapshot, evidence: baselineEvidence, assumptions: [])
+        let contradictory = TruthEngine().confidence(
+            snapshot: snapshot,
+            evidence: baselineEvidence + [
+                EvidenceRecord(area: "Build", summary: "Build failed during release rehearsal", classification: .observed),
+            ],
+            assumptions: []
+        )
+
+        #expect(contradictory.score <= baseline.score)
+        #expect(contradictory.contributions.contains {
+            $0.delta < 0 && $0.label == "1 contradictory confidence area(s)"
+        })
     }
 
     @Test("confidence evidence area matching ignores case and whitespace")
