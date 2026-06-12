@@ -4,8 +4,8 @@ import Testing
 
 @Suite("Dev Tools evidence provenance")
 struct DevToolsEvidenceProvenanceTests {
-    @Test("swift test failure creates measured evidence plus linked build and test records")
-    func swiftTestFailureCreatesReleaseRelevantRecords() throws {
+    @Test("swift test failure creates diagnostic evidence plus linked failed build and test records")
+    func swiftTestFailureCreatesDiagnosticReleaseRelevantRecords() throws {
         let started = Date(timeIntervalSince1970: 1_717_000_000)
         let ended = started.addingTimeInterval(12)
         let command = try preset(.swiftTest)
@@ -29,7 +29,8 @@ struct DevToolsEvidenceProvenanceTests {
         #expect(records.evidence.area == "Tests")
         #expect(records.evidence.kind == .logExcerpt)
         #expect(records.evidence.summary == "Swift Test: Failure")
-        #expect(records.evidence.classification == .measured)
+        #expect(records.evidence.classification == .unknown)
+        #expect(!isConfidenceRaising(records.evidence.classification))
         #expect(records.evidence.author == "Dev Tools")
         #expect(records.evidence.createdAt == ended)
 
@@ -54,8 +55,33 @@ struct DevToolsEvidenceProvenanceTests {
         assertRedacted(test.notes)
     }
 
-    @Test("codesign failure creates release-relevant evidence without build or test records")
-    func codesignFailureCreatesEvidenceOnly() throws {
+    @Test("timed-out swift test creates failed release records without confidence-raising evidence")
+    func timedOutSwiftTestCreatesFailedRecordsWithoutPositiveEvidence() throws {
+        let command = try preset(.swiftTest)
+        let result = DevToolsCommandResult(
+            command: command,
+            status: .timeout,
+            output: "Command exceeded 180s timeout.",
+            startedAt: Date(timeIntervalSince1970: 1_717_000_050),
+            exitCode: nil
+        )
+
+        let records = DevCommandEngine().provenanceRecords(for: result, author: "Dev Tools")
+        let build = try #require(records.build)
+        let test = try #require(records.test)
+
+        #expect(records.evidence.area == "Tests")
+        #expect(records.evidence.summary == "Swift Test: Timeout")
+        #expect(records.evidence.classification == .unknown)
+        #expect(!isConfidenceRaising(records.evidence.classification))
+        #expect(build.result == .failure)
+        #expect(build.linkedEvidenceIDs == [records.evidence.id])
+        #expect(test.outcome == .failed)
+        #expect(test.linkedEvidenceIDs == [records.evidence.id])
+    }
+
+    @Test("codesign failure creates diagnostic evidence without build or test records")
+    func codesignFailureCreatesDiagnosticEvidenceOnly() throws {
         let command = try preset(.codesignVerify)
         let result = DevToolsCommandResult(
             command: command,
@@ -74,7 +100,8 @@ struct DevToolsEvidenceProvenanceTests {
         #expect(records.evidence.area == "Signing")
         #expect(records.evidence.kind == .logExcerpt)
         #expect(records.evidence.summary == "Codesign Verify: Failure")
-        #expect(records.evidence.classification == .measured)
+        #expect(records.evidence.classification == .unknown)
+        #expect(!isConfidenceRaising(records.evidence.classification))
         #expect(records.evidence.body.contains("code object is not signed"))
         #expect(records.build == nil)
         #expect(records.test == nil)
@@ -168,5 +195,9 @@ struct DevToolsEvidenceProvenanceTests {
         #expect(text.contains("[REDACTED_SECRET]") || text.contains("[REDACTED_PRIVATE_PATH]"))
         #expect(!text.contains("api_key=abcdef123"))
         #expect(!text.contains("/Users/chris/private"))
+    }
+
+    private func isConfidenceRaising(_ classification: EvidenceClassification) -> Bool {
+        classification == .observed || classification == .measured || classification == .verified
     }
 }

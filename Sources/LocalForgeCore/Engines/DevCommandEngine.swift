@@ -287,9 +287,10 @@ public struct DevCommandEngine: Sendable {
         switch status {
         case .success:
             .observed
-        case .failure, .timeout:
-            .measured
-        case .blocked:
+        case .failure, .timeout, .blocked:
+            // Unsuccessful command logs are diagnostic evidence. Without
+            // negative-evidence direction metadata they must not count as
+            // strong positive Truth Centre support.
             .unknown
         }
     }
