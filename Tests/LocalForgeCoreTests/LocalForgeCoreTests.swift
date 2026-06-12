@@ -628,6 +628,16 @@ struct LocalForgeCoreTests {
             s.project = ProjectContext(name: name, rootURL: URL(fileURLWithPath: "/tmp/\(name)"), permission: .approved(scopeDescription: "test"))
             s.applicability = applicability
             s.verification = applicability.filter { $0.status.inScope }.map { VerificationRecord(area: $0.area, state: state) }
+            s.evidence = s.verification
+                .filter { $0.state == .verified }
+                .map {
+                    Evidence(
+                        title: "\($0.area) workspace insight evidence",
+                        detail: "\($0.area) observed passing for workspace insight ranking",
+                        classification: .observed,
+                        source: "workspace insight test"
+                    )
+                }
             s.reality = RealityEngine().assess(
                 identity: identity, mission: s.mission, applicability: applicability,
                 git: s.git, summary: s.summary, findings: [], evidence: [], verification: s.verification
