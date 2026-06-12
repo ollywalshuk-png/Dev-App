@@ -13,10 +13,10 @@ struct RecommendationsView: View {
                 ExplanationCard(
                     title: "Recommendations",
                     what: "Recommendations are LocalForge's safe suggestions based on local evidence. They explain a possible improvement before any change is made.",
-                    why: "Large or risky projects need context before action. A recommendation should show the target, impact, evidence, warning, and suggested adjustment.",
-                    next: "Run the code-size scan, review each recommendation, then acknowledge, approve, reject, or mark it complete.",
-                    safety: "Approval here records intent only. LocalForge does not rewrite source files, run fixes, commit, push, delete, or merge from this screen.",
-                    example: "Example: a Swift file over 1,750 lines is flagged with a refactor suggestion, but no automatic split is performed.",
+                    why: "Large, risky, or security-sensitive projects need context before action. A recommendation should show the target, impact, evidence, warning, and suggested adjustment.",
+                    next: "Run a manual scan, review each recommendation, then acknowledge, approve, reject, or mark it complete.",
+                    safety: "Approval here records intent only. LocalForge does not rewrite source files, run fixes, commit, push, delete, rotate credentials, upload content, or merge from this screen.",
+                    example: "Example: a Swift file over 1,750 lines is flagged with a refactor suggestion, or a possible secret pattern is flagged with a redacted preview. No automatic change is performed.",
                     symbol: "exclamationmark.bubble",
                     tint: .orange
                 )
@@ -25,7 +25,7 @@ struct RecommendationsView: View {
                     ContentUnavailableView(
                         "No recommendations yet",
                         systemImage: "checkmark.shield",
-                        description: Text("Run the repo-scoped code-size scan to find source files over 1,750 lines. Empty means no LocalForge recommendations have been recorded yet, not that the project is fully healthy.")
+                        description: Text("Run a repo-scoped code-size scan or local secret scan. Empty means no LocalForge recommendations have been recorded yet, not that the project is fully healthy.")
                     )
                     .frame(maxWidth: .infinity, minHeight: 180)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -58,16 +58,25 @@ struct RecommendationsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Recommendations — \(project.name)")
                     .font(.title2.weight(.semibold))
-                Text("Repo-scoped, evidence-backed suggestions. No automatic fixes.")
+                Text("Repo-scoped, evidence-backed suggestions. Manual scans only, no automatic fixes.")
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button {
-                store.runCodeSizeRecommendationScan(for: project.id)
-            } label: {
-                Label("Scan Code Size", systemImage: "doc.text.magnifyingglass")
+            HStack(spacing: 8) {
+                Button {
+                    store.runSecretRecommendationScan(for: project.id)
+                } label: {
+                    Label("Scan Secrets", systemImage: "lock.shield")
+                }
+                .help("Read-only local scan for potential secret patterns. Values are redacted and not stored.")
+
+                Button {
+                    store.runCodeSizeRecommendationScan(for: project.id)
+                } label: {
+                    Label("Scan Code Size", systemImage: "doc.text.magnifyingglass")
+                }
+                .help("Read-only scan for source files over 1,750 lines")
             }
-            .help("Read-only scan for source files over 1,750 lines")
         }
         .padding()
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -80,7 +89,7 @@ struct RecommendationsView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Approval-gated by design")
                     .font(.headline)
-                Text("A recommendation may describe source-file risk, but this screen only records review decisions. Any future mutating action must show its own target, diff or preview, warning, rollback note, and one-action approval.")
+                Text("A recommendation may describe source-file or secret-pattern risk, but this screen only records review decisions. Secret scan findings store locations and redacted previews only. Any future mutating action must show its own target, diff or preview, warning, rollback note, and one-action approval.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -92,6 +101,7 @@ struct RecommendationsView: View {
     private func summary(_ records: [RecommendationRecord]) -> some View {
         HStack(spacing: 10) {
             StatCell(label: "Open", value: "\(records.filter { $0.approvalState == .open }.count)", color: .orange)
+            StatCell(label: "Safety", value: "\(records.filter { $0.category == .safety }.count)", color: .purple)
             StatCell(label: "Approved", value: "\(records.filter { $0.approvalState == .approved }.count)", color: .blue)
             StatCell(label: "Rejected", value: "\(records.filter { $0.approvalState == .rejected }.count)", color: .red)
             StatCell(label: "Complete", value: "\(records.filter { $0.approvalState == .completed }.count)", color: .green)
@@ -107,7 +117,7 @@ private struct RecommendationCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 10) {
-                Image(systemName: record.sourceFilesAffected ? "doc.badge.gearshape" : "lightbulb")
+                Image(systemName: symbolName)
                     .foregroundStyle(severityColor)
                     .frame(width: 22)
                 VStack(alignment: .leading, spacing: 4) {
@@ -127,6 +137,7 @@ private struct RecommendationCard: View {
             }
 
             VStack(alignment: .leading, spacing: 6) {
+                DetailRow(label: "Category", value: record.category.rawValue)
                 DetailRow(label: "Target", value: record.targetPath)
                 DetailRow(label: "Risk", value: record.severity.rawValue)
                 DetailRow(label: "Evidence", value: record.evidenceSummary)
@@ -159,6 +170,13 @@ private struct RecommendationCard: View {
         case .high: .red
         case .critical: .purple
         }
+    }
+
+    private var symbolName: String {
+        if record.category == .safety {
+            return "lock.shield"
+        }
+        return record.sourceFilesAffected ? "doc.badge.gearshape" : "lightbulb"
     }
 
     private var stateColor: Color {

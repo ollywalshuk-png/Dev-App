@@ -47,6 +47,7 @@ final class WorkspaceStore: ObservableObject {
     let backupEngine = BackupEngine()
     let utilityCentre = UtilityCentreEngine()
     private let codeBloatScanner = CodeBloatScannerEngine()
+    private let secretScanner = SecretScannerEngine()
     private let persistenceStore: any WorkspacePersisting
     private let bookmarkProvider: any SecurityScopedBookmarkProviding
     private var persistedRecords: [UUID: PersistedProjectRecord] = [:]
@@ -1123,6 +1124,32 @@ final class WorkspaceStore: ObservableObject {
         statusMessage = findings.isEmpty ? "Code-size scan complete: no files over threshold." : "Code-size scan complete: \(findings.count) recommendation(s) created."
     }
 
+    func runSecretRecommendationScan(for projectID: UUID) {
+        guard let project = projects.first(where: { $0.id == projectID }) else { return }
+        let findings = secretScanner.scan(repoRoot: project.rootURL)
+        let scanned = secretScanner.recommendations(from: findings)
+        mergeRecommendations(scanned, for: projectID)
+
+        let evidenceBody: String
+        if findings.isEmpty {
+            evidenceBody = "No potential secret patterns were detected. Matched values are never stored."
+        } else {
+            evidenceBody = findings.map {
+                "\($0.relativePath):\($0.lineNumber) - \($0.kind.rawValue), \($0.severity.rawValue), \($0.reason). Matched value redacted and not stored."
+            }.joined(separator: "\n")
+        }
+        let evidence = EvidenceRecord(
+            area: "Security Intelligence",
+            kind: .observation,
+            summary: "Local secret scan found \(findings.count) potential secret pattern(s).",
+            body: evidenceBody,
+            classification: .observed,
+            author: "LocalForge"
+        )
+        addEvidence(evidence, for: projectID)
+        statusMessage = findings.isEmpty ? "Local secret scan complete: no potential secret patterns." : "Local secret scan complete: \(findings.count) Safety recommendation(s) recorded."
+    }
+
     func updateRecommendationState(
         id: UUID,
         state: RecommendationApprovalState,
@@ -1167,9 +1194,7 @@ final class WorkspaceStore: ObservableObject {
     private func mergeRecommendations(_ incoming: [RecommendationRecord], for projectID: UUID) {
         var existing = persistedRecords[projectID]?.recommendations ?? []
         for recommendation in incoming {
-            if let index = existing.firstIndex(where: {
-                $0.category == recommendation.category && $0.targetPath == recommendation.targetPath
-            }) {
+            if let index = existing.firstIndex(where: { isSameRecommendation($0, recommendation) }) {
                 var merged = recommendation
                 merged.id = existing[index].id
                 merged.createdAt = existing[index].createdAt
@@ -1184,6 +1209,14 @@ final class WorkspaceStore: ObservableObject {
         }
         persistedRecords[projectID]?.recommendations = existing
         persistWorkspaceState()
+    }
+
+    private func isSameRecommendation(_ lhs: RecommendationRecord, _ rhs: RecommendationRecord) -> Bool {
+        guard lhs.category == rhs.category, lhs.targetPath == rhs.targetPath else { return false }
+        if lhs.category == .safety {
+            return lhs.title == rhs.title
+        }
+        return true
     }
 }
 

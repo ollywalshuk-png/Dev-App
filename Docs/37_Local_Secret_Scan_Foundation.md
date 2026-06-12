@@ -30,3 +30,9 @@ local configuration.
 This is a Phase 16 foundation slice, not the full Security Intelligence UI.
 Future UI work should keep the same constraints: local-only, explicit scan,
 redacted previews, no cloud upload, and no automatic deletion.
+
+UI note: the Recommendations screen now exposes a manual **Scan Secrets** action
+for the selected project. It runs `SecretScannerEngine` against that selected
+repository root only, records Safety recommendations with redacted evidence, and
+does not delete files, rotate credentials, upload content, commit, push, or run
+in the background.
