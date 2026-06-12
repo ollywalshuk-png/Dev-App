@@ -80,11 +80,19 @@ struct TestRegistryView: View {
     }
 
     private func testSummary(_ records: [TestRecord]) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 10)], spacing: 10) {
+        let now = Date()
+        let evidenceLinked = records.filter { !$0.linkedEvidenceIDs.isEmpty }.count
+        let manual = records.filter { $0.kind == .manual }.count
+        let stale = records.filter { testObservationFreshness(for: $0.testedAt, referenceDate: now) == .stale }.count
+
+        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 10)], spacing: 10) {
             StatCell(label: "Passed", value: "\(records.filter { $0.outcome == .passed }.count)", color: .green)
             StatCell(label: "Failed", value: "\(records.filter { $0.outcome == .failed }.count)", color: .red)
             StatCell(label: "Blocked", value: "\(records.filter { $0.outcome == .blocked }.count)", color: .orange)
             StatCell(label: "Unknown", value: "\(records.filter { $0.outcome == .unknown }.count)", color: .gray)
+            StatCell(label: "Evidence Linked", value: "\(evidenceLinked)", color: evidenceLinked == records.count ? .green : .indigo)
+            StatCell(label: "Manual", value: "\(manual)", color: manual > 0 ? .purple : .gray)
+            StatCell(label: "Stale", value: "\(stale)", color: stale > 0 ? .orange : .gray)
         }
     }
 
@@ -101,6 +109,56 @@ struct TestRegistryView: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(summary, forType: .string)
     }
+}
+
+private let staleTestObservationInterval: TimeInterval = 60 * 60 * 24 * 30
+private let recentTestObservationInterval: TimeInterval = 60 * 60 * 24 * 7
+
+private enum TestObservationFreshness: Equatable {
+    case fresh
+    case recent
+    case stale
+    case future
+
+    var label: String {
+        switch self {
+        case .fresh: "Fresh <7d"
+        case .recent: "Recent <30d"
+        case .stale: "Stale 30d+"
+        case .future: "Future date"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .fresh: "checkmark.circle.fill"
+        case .recent: "clock"
+        case .stale: "clock.badge.exclamationmark"
+        case .future: "calendar"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .fresh: .green
+        case .recent: .blue
+        case .stale, .future: .orange
+        }
+    }
+}
+
+private func testObservationFreshness(for testedAt: Date, referenceDate: Date = Date()) -> TestObservationFreshness {
+    let age = referenceDate.timeIntervalSince(testedAt)
+    if age < 0 {
+        return .future
+    }
+    if age < recentTestObservationInterval {
+        return .fresh
+    }
+    if age < staleTestObservationInterval {
+        return .recent
+    }
+    return .stale
 }
 
 private struct RegistryHelpPanel: View {
@@ -152,11 +210,24 @@ private struct TestRecordCard: View {
     var onCopy: (TestRecord) -> Void
 
     var body: some View {
+        let freshness = testObservationFreshness(for: record.testedAt)
+
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
-                Label(record.outcome.rawValue, systemImage: record.outcome.symbolName)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(outcomeColor)
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 6) {
+                        TestTrustChip(text: record.outcome.rawValue, symbol: record.outcome.symbolName, color: outcomeColor)
+                        TestTrustChip(text: freshness.label, symbol: freshness.symbolName, color: freshness.color)
+                    }
+                    HStack(spacing: 6) {
+                        TestTrustChip(text: evidenceLabel, symbol: evidenceSymbolName, color: evidenceColor)
+                        TestTrustChip(
+                            text: record.kind == .manual ? "Manual" : record.kind.rawValue,
+                            symbol: record.kind == .manual ? "person" : "checklist.checked",
+                            color: record.kind == .manual ? .purple : .blue
+                        )
+                    }
+                }
                 Spacer()
                 Button { onCopy(record) } label: {
                     Image(systemName: "doc.on.doc")
@@ -178,10 +249,14 @@ private struct TestRecordCard: View {
                 Label(record.linkedVerificationArea, systemImage: "checkmark.seal")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } else {
+                Label("Unlinked verification area", systemImage: "checkmark.seal")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
 
             HStack {
-                Label("\(record.linkedEvidenceIDs.count) evidence", systemImage: "paperclip")
+                Label(record.author.isEmpty ? "Observer unknown" : record.author, systemImage: "person")
                 Spacer()
                 Text(record.testedAt.formatted(date: .abbreviated, time: .shortened))
             }
@@ -208,6 +283,21 @@ private struct TestRecordCard: View {
         )
     }
 
+    private var evidenceLabel: String {
+        if record.linkedEvidenceIDs.isEmpty {
+            return "No evidence"
+        }
+        return "\(record.linkedEvidenceIDs.count) evidence"
+    }
+
+    private var evidenceSymbolName: String {
+        record.linkedEvidenceIDs.isEmpty ? "exclamationmark.triangle.fill" : "paperclip"
+    }
+
+    private var evidenceColor: Color {
+        record.linkedEvidenceIDs.isEmpty ? .orange : .indigo
+    }
+
     private var outcomeColor: Color {
         switch record.outcome {
         case .passed: .green
@@ -216,6 +306,23 @@ private struct TestRecordCard: View {
         case .skipped: .secondary
         case .unknown: .gray
         }
+    }
+}
+
+private struct TestTrustChip: View {
+    var text: String
+    var symbol: String
+    var color: Color
+
+    var body: some View {
+        Label(text, systemImage: symbol)
+            .font(.caption2.weight(.bold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.14), in: Capsule())
+            .foregroundStyle(color)
     }
 }
 
