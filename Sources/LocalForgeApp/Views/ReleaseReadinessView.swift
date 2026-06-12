@@ -16,13 +16,14 @@ struct ReleaseReadinessView: View {
                         title: "Release Readiness",
                         what: "Release Readiness combines build, test, verification, evidence, signing, and risk state into a release-focused board.",
                         why: "A project can compile and still be unsafe to ship if critical areas are unknown, failed, blocked, or missing evidence.",
-                        next: board.status == .ready ? "Review the release brief and keep evidence attached before distribution." : "Work through critical and high-priority rows first, then attach or promote supporting evidence.",
+                        next: board.status == .ready ? "Treat this as a local-evidence summary, then review the release brief and keep evidence attached before distribution." : "Work through critical and high-priority rows first, then attach or promote supporting evidence.",
                         safety: "This screen is read-only. It summarises records already stored in LocalForge and does not notarise, upload, sign, or change the project.",
                         example: "Example: Build passed, but preset restore remains unknown, so release confidence stays limited.",
                         symbol: "flag.checkered",
                         tint: .orange
                     )
                     truthDebtPanel(project: project)
+                    releaseTrustCuePanel(board: board)
                     if board.rows.isEmpty {
                         ContentUnavailableView(
                             "No in-scope areas",
@@ -32,7 +33,7 @@ struct ReleaseReadinessView: View {
                     } else {
                         ForEach(board.rowsByPriority, id: \.priority) { group in
                             if !group.rows.isEmpty {
-                                prioritySection(priority: group.priority, rows: group.rows)
+                                prioritySection(priority: group.priority, rows: group.rows, board: board)
                             }
                         }
                         copyButton(project: project, board: board)
@@ -54,6 +55,8 @@ struct ReleaseReadinessView: View {
         let status = report?.status ?? .defensible
         let color = truthDebtColor(status)
         let nextAction = report?.nextActions.first ?? "Keep release evidence fresh before making or distributing a release-ready claim."
+        let blockerPreview: [TruthDebtGate] = Array((report?.blockers ?? []).prefix(2))
+        let caveatPreview: [TruthDebtGate] = Array((report?.caveats ?? []).prefix(2))
 
         return HStack(alignment: .center, spacing: 12) {
             Image(systemName: truthDebtSymbol(status))
@@ -81,6 +84,17 @@ struct ReleaseReadinessView: View {
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if !blockerPreview.isEmpty || !caveatPreview.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(blockerPreview) { gate in
+                            GateSnippet(label: "Blocker", text: gate.title, color: .red)
+                        }
+                        ForEach(caveatPreview) { gate in
+                            GateSnippet(label: "Caveat", text: gate.title, color: .orange)
+                        }
+                    }
+                    .padding(.top, 2)
+                }
             }
             Spacer(minLength: 8)
             CountTag(label: "Blockers", count: report?.blockers.count ?? 0, color: .red)
@@ -118,7 +132,9 @@ struct ReleaseReadinessView: View {
     }
 
     private func header(project: ProjectContext, board: ReleaseReadinessBoard) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let columns = [GridItem(.adaptive(minimum: 104), spacing: 8, alignment: .leading)]
+
+        return VStack(alignment: .leading, spacing: 10) {
             Text("Release Readiness — \(project.name)")
                 .font(.system(size: 30, weight: .bold))
                 .lineLimit(1)
@@ -127,7 +143,7 @@ struct ReleaseReadinessView: View {
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
                 StatusBadge(status: board.status)
                 CountTag(label: "Verified", count: board.counts.verified, color: .green)
                 CountTag(label: "Failed", count: board.counts.failed, color: .red)
@@ -139,12 +155,103 @@ struct ReleaseReadinessView: View {
                 if board.highRemaining > 0 {
                     CountTag(label: "High Open", count: board.highRemaining, color: .orange)
                 }
+                if !board.riskBlockers.isEmpty {
+                    CountTag(label: "Risk Blockers", count: board.riskBlockers.count, color: .red)
+                }
             }
+            Text("Local evidence only. This board does not approve, notarise, sign, upload, or ship a release.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func prioritySection(priority: VerificationPriority, rows: [ReleaseAreaStatus]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func releaseTrustCuePanel(board: ReleaseReadinessBoard) -> some View {
+        let blockerItems = board.blockers.map { "Verification: \($0)" } + board.riskBlockers.map { "Risk: \($0)" }
+        let caveatItems = Array(board.caveats.prefix(3))
+        let evidenceGapRows = evidenceGapRows(in: board)
+        let evidenceGapItems = evidenceGapRows.prefix(3).map { "\($0.area) is \($0.state.rawValue)" }
+        let columns = [GridItem(.adaptive(minimum: 138), spacing: 12, alignment: .leading)]
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Local Trust Cues")
+                    .font(.system(size: 16, weight: .semibold))
+                Spacer(minLength: 12)
+                Text("Evidence-bound")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                TrustCueMetric(
+                    title: "Critical gates",
+                    value: gateValue(board.criticalRemaining),
+                    detail: board.criticalRemaining == 0 ? "Clear in local records" : "Need verified evidence",
+                    symbol: board.criticalRemaining == 0 ? "checkmark.shield" : "exclamationmark.octagon",
+                    color: board.criticalRemaining == 0 ? .green : .red
+                )
+                TrustCueMetric(
+                    title: "High gates",
+                    value: gateValue(board.highRemaining),
+                    detail: board.highRemaining == 0 ? "Clear in local records" : "Need verified evidence",
+                    symbol: board.highRemaining == 0 ? "checkmark.shield" : "exclamationmark.triangle",
+                    color: board.highRemaining == 0 ? .green : .orange
+                )
+                TrustCueMetric(
+                    title: "Evidence gaps",
+                    value: "\(evidenceGapRows.count)",
+                    detail: evidenceGapRows.isEmpty ? "No Unknown/In Progress rows" : "Unknown/In Progress rows",
+                    symbol: evidenceGapRows.isEmpty ? "checkmark.circle" : "questionmark.circle",
+                    color: evidenceGapRows.isEmpty ? .green : .gray
+                )
+                TrustCueMetric(
+                    title: "Blockers",
+                    value: "\(blockerItems.count)",
+                    detail: blockerItems.isEmpty ? "None in local records" : "Verification or risk",
+                    symbol: blockerItems.isEmpty ? "checkmark.circle" : "exclamationmark.octagon",
+                    color: blockerItems.isEmpty ? .green : .red
+                )
+                TrustCueMetric(
+                    title: "Caveats",
+                    value: "\(board.caveats.count)",
+                    detail: board.caveats.isEmpty ? "No caveats recorded" : "Require qualified claims",
+                    symbol: board.caveats.isEmpty ? "checkmark.circle" : "exclamationmark.triangle",
+                    color: board.caveats.isEmpty ? .green : .orange
+                )
+            }
+
+            if !blockerItems.isEmpty || !caveatItems.isEmpty || !evidenceGapItems.isEmpty {
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    if !blockerItems.isEmpty {
+                        TrustCueList(title: "Blockers to resolve", items: blockerItems, color: .red, symbol: "exclamationmark.octagon.fill")
+                    }
+                    if !caveatItems.isEmpty {
+                        TrustCueList(title: "Caveats to carry", items: caveatItems, color: .orange, symbol: "exclamationmark.triangle.fill")
+                    }
+                    if !evidenceGapItems.isEmpty {
+                        TrustCueList(title: "Evidence gaps", items: evidenceGapItems, color: .gray, symbol: "questionmark.circle.fill")
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func evidenceGapRows(in board: ReleaseReadinessBoard) -> [ReleaseAreaStatus] {
+        board.rows.filter { $0.state == .unknown || $0.state == .inProgress }
+    }
+
+    private func gateValue(_ count: Int) -> String {
+        count == 0 ? "Clear" : "\(count) Open"
+    }
+
+    private func prioritySection(priority: VerificationPriority, rows: [ReleaseAreaStatus], board: ReleaseReadinessBoard) -> some View {
+        let openGateCount = criticalHighOpenCount(for: priority, board: board)
+
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: priority.symbolName)
                     .foregroundStyle(priorityColor(priority))
@@ -157,6 +264,9 @@ struct ReleaseReadinessView: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
+            if let openGateCount {
+                GateStatusLine(priority: priority, openCount: openGateCount, color: openGateCount == 0 ? .green : priorityColor(priority))
+            }
             ForEach(rows) { row in
                 Row(row: row)
             }
@@ -164,6 +274,14 @@ struct ReleaseReadinessView: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func criticalHighOpenCount(for priority: VerificationPriority, board: ReleaseReadinessBoard) -> Int? {
+        switch priority {
+        case .critical: board.criticalRemaining
+        case .high: board.highRemaining
+        case .medium, .low: nil
+        }
     }
 
     private func copyButton(project: ProjectContext, board: ReleaseReadinessBoard) -> some View {
@@ -225,32 +343,104 @@ private struct Row: View {
                 .font(.title3)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(row.area)
                         .font(.system(size: 16, weight: .semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                     Text(row.state.rawValue)
                         .font(.caption.weight(.bold))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
                         .background(stateColor.opacity(0.16), in: Capsule())
                         .foregroundStyle(stateColor)
+                    if row.state == .failed {
+                        CuePill(text: "Blocker", color: .red)
+                    }
+                    if gateIsOpen {
+                        CuePill(text: "\(row.priority.rawValue) gate open", color: priorityColor)
+                    }
+                    if hasEvidenceGap {
+                        CuePill(text: "Evidence gap", color: .gray)
+                    }
+                    if !row.blockedBy.isEmpty {
+                        CuePill(text: "Dependency blocked", color: .orange)
+                    }
                     if !row.ageDescription.isEmpty, row.state == .verified {
                         Text(row.ageDescription)
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
                 }
-                if !row.blockedBy.isEmpty {
-                    Text("Blocked by: \(row.blockedBy.joined(separator: ", "))")
+                if hasEvidenceGap {
+                    Text("Local records show \(row.state.rawValue.lowercased()), not verified release evidence.")
                         .font(.system(size: 13))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !row.blockedBy.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Image(systemName: "arrow.triangle.branch")
+                            .font(.caption)
+                        Text("Blocked by: \(row.blockedBy.joined(separator: ", "))")
+                            .font(.system(size: 13))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .foregroundStyle(.orange)
+                }
+                if row.state == .failed {
+                    Text("Failed local verification blocks a release-ready claim for this area.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer()
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .background(rowBackground, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(rowBorderColor.opacity(rowBorderOpacity), lineWidth: 1)
+        }
+    }
+
+    private var gateIsOpen: Bool {
+        (row.priority == .critical || row.priority == .high) && (row.state != .verified || !row.blockedBy.isEmpty)
+    }
+
+    private var hasEvidenceGap: Bool {
+        row.state == .unknown || row.state == .inProgress
+    }
+
+    private var priorityColor: Color {
+        switch row.priority {
+        case .critical: .red
+        case .high: .orange
+        case .medium: .blue
+        case .low: .gray
+        }
+    }
+
+    private var rowBackground: Color {
+        if row.state == .failed { return Color.red.opacity(0.07) }
+        if !row.blockedBy.isEmpty { return Color.orange.opacity(0.07) }
+        if gateIsOpen { return priorityColor.opacity(0.06) }
+        if hasEvidenceGap { return Color.secondary.opacity(0.07) }
+        return Color.secondary.opacity(0.06)
+    }
+
+    private var rowBorderColor: Color {
+        if row.state == .failed { return .red }
+        if !row.blockedBy.isEmpty { return .orange }
+        if gateIsOpen { return priorityColor }
+        return .secondary
+    }
+
+    private var rowBorderOpacity: Double {
+        if row.state == .failed || !row.blockedBy.isEmpty || gateIsOpen { return 0.36 }
+        return 0
     }
 
     private var stateColor: Color {
@@ -260,6 +450,137 @@ private struct Row: View {
         case .inProgress: .blue
         case .unknown: .gray
         }
+    }
+}
+
+private struct GateStatusLine: View {
+    var priority: VerificationPriority
+    var openCount: Int
+    var color: Color
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: openCount == 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(color)
+            Text(message)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(color)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(color.opacity(0.12), in: Capsule())
+    }
+
+    private var message: String {
+        if openCount == 0 {
+            return "\(priority.rawValue) gate clear in local records."
+        }
+        return "\(openCount) \(priority.rawValue) gate\(openCount == 1 ? "" : "s") need verified, fresh, unblocked evidence."
+    }
+}
+
+private struct GateSnippet: View {
+    var label: String
+    var text: String
+    var color: Color
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(label.uppercased())
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(color)
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+}
+
+private struct TrustCueMetric: View {
+    var title: String
+    var value: String
+    var detail: String
+    var symbol: String
+    var color: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: symbol)
+                .foregroundStyle(color)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(value)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+private struct TrustCueList: View {
+    var title: String
+    var items: [String]
+    var color: Color
+    var symbol: String
+
+    var body: some View {
+        let visibleItems = Array(items.prefix(3))
+
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.caption)
+                    .foregroundStyle(color)
+                Text(title)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(color)
+            }
+            ForEach(visibleItems, id: \.self) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Circle()
+                        .fill(color.opacity(0.75))
+                        .frame(width: 4, height: 4)
+                    Text(item)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            if items.count > visibleItems.count {
+                Text("+ \(items.count - visibleItems.count) more")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+private struct CuePill: View {
+    var text: String
+    var color: Color
+
+    var body: some View {
+        Text(text.uppercased())
+            .font(.caption2.weight(.bold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.14), in: Capsule())
+            .foregroundStyle(color)
+            .lineLimit(1)
     }
 }
 
@@ -277,9 +598,11 @@ private struct StatusBadge: View {
     }
 
     var body: some View {
-        Text(status.rawValue.uppercased())
+        Text("LOCAL \(status.rawValue.uppercased())")
             .font(.caption.weight(.bold))
             .tracking(0.8)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(color.opacity(0.18), in: Capsule())
