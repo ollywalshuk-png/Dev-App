@@ -997,6 +997,54 @@ struct LocalForgeCoreTests {
         #expect(loadedB?.journal == nil)
     }
 
+    @Test("sqlite persistence round-trips workspace-level metadata")
+    func sqliteRoundTripsWorkspaceMetadata() throws {
+        let file = try makeTempDir().appendingPathComponent("ws.sqlite")
+        let projectID = UUID()
+        let savedView = SavedView(
+            id: UUID(),
+            kind: .releaseRisks,
+            name: "Release watch",
+            filterJSON: #"{"priority":"critical","owner":"Olly"}"#,
+            createdAt: Date(timeIntervalSince1970: 1_800),
+            isPinned: true
+        )
+        let pinnedItem = PinnedItem(
+            id: UUID(),
+            kind: .risk,
+            recordID: UUID(),
+            projectID: projectID,
+            label: "Persistence risk",
+            pinnedAt: Date(timeIntervalSince1970: 1_900)
+        )
+        let state = WorkspacePersistenceState(
+            projects: [
+                PersistedProjectRecord(
+                    id: projectID,
+                    name: "LocalForge",
+                    fallbackPath: "/tmp/localforge",
+                    bookmarkData: nil,
+                    scanPolicy: .balanced,
+                    bookmarkStatus: .saved
+                )
+            ],
+            scanMode: .release,
+            theme: ThemePreferences(appearance: .light, accentName: "Indigo", brightnessAdjustment: -1),
+            lastActiveProjectID: projectID,
+            savedViews: [savedView],
+            pinnedItems: [pinnedItem],
+            favoritedProjectIDs: [projectID]
+        )
+
+        try SQLitePersistenceStore(fileURL: file, legacyDefaults: nil).save(state)
+        let loaded = try SQLitePersistenceStore(fileURL: file, legacyDefaults: nil).load()
+
+        #expect(loaded == state)
+        #expect(loaded.savedViews == [savedView])
+        #expect(loaded.pinnedItems == [pinnedItem])
+        #expect(loaded.favoritedProjectIDs == [projectID])
+    }
+
     @Test("sqlite imports the legacy UserDefaults blob on first load and keeps it")
     func sqliteMigratesLegacyBlob() throws {
         let defaults = try temporaryDefaults()
