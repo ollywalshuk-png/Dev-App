@@ -14,6 +14,7 @@ public struct WorkspaceDoctorEngine: Sendable {
             issues += brokenLinks(record: record, pid: pid, pname: pname)
             issues += orphans(record: record, pid: pid, pname: pname)
             issues += duplicates(record: record, pid: pid, pname: pname)
+            issues += trustIntegrity(record: record, pid: pid, pname: pname)
             issues += invalidDates(record: record, pid: pid, pname: pname)
         }
 
@@ -189,6 +190,100 @@ public struct WorkspaceDoctorEngine: Sendable {
         return issues
     }
 
+    // MARK: - Trust integrity
+
+    private func trustIntegrity(record: PersistedProjectRecord, pid: UUID, pname: String) -> [WorkspaceDoctorIssue] {
+        var issues: [WorkspaceDoctorIssue] = []
+        let evidence = record.evidence ?? []
+        let verification = record.verification ?? []
+        let risks = record.risks ?? []
+        let recommendations = record.recommendations ?? []
+        let evidenceIDs = Set(evidence.map(\.id))
+
+        let staleUnbacked = verification.filter { v in
+            guard v.state == .verified else { return false }
+            let age = VerificationAge.from(v.updatedAt)
+            guard age == .stale || age == .expired else { return false }
+            return !hasEvidence(for: v, in: evidence)
+        }
+        if !staleUnbacked.isEmpty {
+            issues.append(.init(
+                kind: .missingReference,
+                severity: staleUnbacked.contains { VerificationAge.from($0.updatedAt) == .expired } ? .high : .medium,
+                projectID: pid,
+                projectName: pname,
+                title: "\(staleUnbacked.count) stale verified area(s) have no evidence",
+                impact: "Verification remains marked Verified after trust decay, but no evidence record backs it. Release-readiness users may over-trust stale truth.",
+                recommendation: "Attach recent evidence or move stale areas back to In Progress or Unknown until re-verified."
+            ))
+        }
+
+        let unlinkedHighImpactRisks = risks.filter { risk in
+            isActiveHighImpactRisk(risk) && !hasRiskTruthLinks(risk)
+        }
+        if !unlinkedHighImpactRisks.isEmpty {
+            issues.append(.init(
+                kind: .orphanRisk,
+                severity: unlinkedHighImpactRisks.contains { $0.impact == .critical } ? .high : .medium,
+                projectID: pid,
+                projectName: pname,
+                title: "\(unlinkedHighImpactRisks.count) high-impact active risk(s) have no truth links",
+                impact: "High or Critical active risks are not tied to evidence, verification, decisions, or architecture. Release blockers may be hard to trace or resolve.",
+                recommendation: "Link each risk to the relevant evidence, verification area, decision, or architecture record."
+            ))
+        }
+
+        let conflictingAreas = duplicateVerificationGroups(in: verification).filter { group in
+            Set(group.map(\.state)).count > 1
+        }
+        if !conflictingAreas.isEmpty {
+            issues.append(.init(
+                kind: .corruptRelationship,
+                severity: .high,
+                projectID: pid,
+                projectName: pname,
+                title: "\(conflictingAreas.count) verification area(s) have conflicting states",
+                impact: "Multiple records for the same area disagree on truth state. Readiness and confidence views may show whichever duplicate is read first.",
+                recommendation: "Merge duplicate verification rows and keep one current state per area."
+            ))
+        }
+
+        let recommendationsWithMissingEvidence = recommendations.filter { recommendation in
+            recommendation.relatedEvidenceIDs.contains { !evidenceIDs.contains($0) }
+        }
+        if !recommendationsWithMissingEvidence.isEmpty {
+            issues.append(.init(
+                kind: .missingReference,
+                severity: recommendationsWithMissingEvidence.contains { isHighSeveritySafetyRecommendation($0) } ? .high : .medium,
+                projectID: pid,
+                projectName: pname,
+                title: "\(recommendationsWithMissingEvidence.count) recommendation(s) reference missing evidence",
+                impact: "Actionable advice points at evidence records that no longer exist. Safety and release recommendations may be stale or unverifiable.",
+                recommendation: "Restore the evidence records or remove stale relatedEvidenceIDs from the recommendation."
+            ))
+        }
+
+        let orphanedSafetyRecommendations = recommendations.filter { recommendation in
+            isActiveSafetyRecommendation(recommendation)
+                && isBlank(recommendation.targetPath)
+                && isBlank(recommendation.evidenceSummary)
+                && recommendation.relatedEvidenceIDs.isEmpty
+        }
+        if !orphanedSafetyRecommendations.isEmpty {
+            issues.append(.init(
+                kind: .missingReference,
+                severity: orphanedSafetyRecommendations.contains { $0.severity.rank >= RecommendationSeverity.high.rank } ? .high : .medium,
+                projectID: pid,
+                projectName: pname,
+                title: "\(orphanedSafetyRecommendations.count) active safety recommendation(s) have no evidence target",
+                impact: "Safety recommendations without a path, evidence summary, or related evidence cannot be audited before action.",
+                recommendation: "Attach evidence or close the recommendation if its source finding no longer exists."
+            ))
+        }
+
+        return issues
+    }
+
     // MARK: - Invalid dates
 
     private func invalidDates(record: PersistedProjectRecord, pid: UUID, pname: String) -> [WorkspaceDoctorIssue] {
@@ -227,5 +322,54 @@ public struct WorkspaceDoctorEngine: Sendable {
             if !seen.insert(v).inserted { dups.insert(v) }
         }
         return Array(dups)
+    }
+
+    private func hasEvidence(for verification: VerificationRecord, in evidence: [EvidenceRecord]) -> Bool {
+        let area = normalizedArea(verification.area)
+        return evidence.contains { e in
+            normalizedArea(e.area) == area
+                || e.linkedVerificationIDs.contains(verification.id)
+                || e.linkedID == verification.id
+        }
+    }
+
+    private func isActiveHighImpactRisk(_ risk: RiskRecord) -> Bool {
+        (risk.status == .open || risk.status == .monitoring)
+            && (risk.impact == .high || risk.impact == .critical)
+    }
+
+    private func hasRiskTruthLinks(_ risk: RiskRecord) -> Bool {
+        !risk.linkedVerificationAreas.filter { !isBlank($0) }.isEmpty
+            || !risk.linkedEvidenceIDs.isEmpty
+            || !risk.linkedVerificationIDs.isEmpty
+            || !risk.linkedDecisionIDs.isEmpty
+            || !risk.linkedArchitectureIDs.isEmpty
+    }
+
+    private func duplicateVerificationGroups(in verification: [VerificationRecord]) -> [[VerificationRecord]] {
+        let groups = Dictionary(grouping: verification) { normalizedArea($0.area) }
+        return groups.values.filter { group in
+            guard let first = group.first else { return false }
+            return !normalizedArea(first.area).isEmpty && group.count > 1
+        }
+    }
+
+    private func isActiveSafetyRecommendation(_ recommendation: RecommendationRecord) -> Bool {
+        recommendation.category == .safety
+            && recommendation.approvalState != .completed
+            && recommendation.approvalState != .rejected
+    }
+
+    private func isHighSeveritySafetyRecommendation(_ recommendation: RecommendationRecord) -> Bool {
+        recommendation.category == .safety
+            && recommendation.severity.rank >= RecommendationSeverity.high.rank
+    }
+
+    private func normalizedArea(_ area: String) -> String {
+        area.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func isBlank(_ value: String) -> Bool {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
