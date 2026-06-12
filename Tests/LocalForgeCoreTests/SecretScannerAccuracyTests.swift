@@ -101,6 +101,25 @@ struct SecretScannerAccuracyTests {
 
         #expect(findings.isEmpty)
     }
+
+    @Test("real assignments are still reported when placeholder text appears elsewhere")
+    func detectsRealAssignmentsBesidePlaceholderComments() throws {
+        let fixture = try SecretScannerAccuracyFixture()
+        defer { fixture.cleanup() }
+
+        let token = fakeSecretValue(label: "mixed")
+        try fixture.write(
+            "Config/mixed.env",
+            contents: "API_KEY=\(token) # fallback is ${API_KEY}\n"
+        )
+
+        let finding = try #require(SecretScannerEngine().scan(repoRoot: fixture.root).first)
+
+        #expect(finding.kind == .credentialAssignment)
+        #expect(finding.reason == "credential-like assignment")
+        #expect(finding.redactedPreview.contains("API_KEY=<redacted>"))
+        try expectNoRawValue(token, in: finding)
+    }
 }
 
 private func fakeSecretValue(label: String) -> String {

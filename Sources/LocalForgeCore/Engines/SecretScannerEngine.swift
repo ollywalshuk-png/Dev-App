@@ -133,7 +133,7 @@ public struct SecretScannerEngine: Sendable {
             return (.providerToken, "known provider-token shape")
         }
 
-        if matches(#"https?://[^/\s:@]+:[^/\s:@]+@"#, in: trimmed, caseInsensitive: true) {
+        if matches(#"https?://[^/\s:@${}()]+:[^/\s:@${}()]+@"#, in: trimmed, caseInsensitive: true) {
             return (.embeddedCredential, "URL with embedded credentials")
         }
 
@@ -186,13 +186,11 @@ public struct SecretScannerEngine: Sendable {
             || lowered.contains("placeholder")
             || lowered.contains("changeme")
             || lowered.contains("example")
-            || lowered.contains("${")
-            || lowered.contains("$(")
     }
 
     private func redactedPreview(for line: String) -> String {
         var preview = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        preview = replace(#"(https?://)[^/\s:@]+:[^/\s:@]+@"#, in: preview, with: "$1<redacted>@")
+        preview = replace(#"(https?://)[^/\s:@${}()]+:[^/\s:@${}()]+@"#, in: preview, with: "$1<redacted>@")
         preview = replace(#"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"#, in: preview, with: "<redacted-provider-token>", caseInsensitive: false)
         preview = replace(#"gh[pousr]_[A-Za-z0-9_]{24,}"#, in: preview, with: "<redacted-provider-token>", caseInsensitive: false)
         preview = replace(#"((?://[^\s:=]+(?::\d+)?/?:)?_authToken\s*=\s*)[A-Za-z0-9._~+/=-]{8,}"#, in: preview, with: "$1<redacted>")
