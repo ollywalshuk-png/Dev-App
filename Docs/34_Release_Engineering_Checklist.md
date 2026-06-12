@@ -36,6 +36,17 @@ the app is not distribution-ready.
   ```sh
   ./script/build_and_run.sh --verify
   ```
+- Capture a local release integrity manifest after the bundle or archive is
+  available:
+  ```sh
+  script/release_manifest.sh --check \
+    --zip dist/LocalForge-notarization.zip \
+    --output dist/release-integrity-manifest.txt
+  ```
+  Omit `--zip` before the archive exists. The helper records the app path, Git
+  commit, optional zip SHA-256, codesign verification summary, and stapler
+  validation result without signing, stapling, uploading, or requiring
+  credentials.
 - Confirm `dist/LocalForge.app` launches and the human UI smoke checklist is complete.
 
 ## Developer ID Signing Preparation
@@ -123,3 +134,4 @@ Release engineering remains approval-gated. No script should silently:
 - Delete release artefacts.
 - Commit or push release changes.
 - Modify user projects.
+- Upload or transmit release integrity manifests.
