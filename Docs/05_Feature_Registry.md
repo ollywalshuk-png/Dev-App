@@ -134,6 +134,19 @@ Developer trust planning docs:
 - Added `Docs/36_Truth_Centre_Stress_Plan.md` to define measurable stress gates for future Truth Centre accuracy claims.
 - No runtime feature or scoring change was added by these documents.
 
+Local secret scan foundation:
+
+- Added `SecretScannerEngine`, a selected-repository-scoped, local-only scanner
+  for credential-like assignments, provider-token-shaped strings, embedded URL
+  credentials, and private-key headers.
+- Secret scan findings store only path, line, kind, severity, reason, and a
+  redacted preview. Matched credential values are not persisted.
+- Findings can become Safety recommendations that instruct manual removal,
+  rotation, and Keychain/environment/untracked-config handling.
+- Added `Docs/37_Local_Secret_Scan_Foundation.md`.
+- No automatic deletion, history rewrite, credential rotation, commit, push,
+  cloud upload, daemon, or background scan was added.
+
 Foundation stubs (deferred by design):
 
 - Free-form terminal / arbitrary command execution.
