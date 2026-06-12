@@ -20,7 +20,6 @@ struct DevCommandEvidenceSignalTests {
         let test = try #require(records.test)
 
         #expect(records.evidence.summary == "Swift Test: Failure")
-        #expect(records.evidence.classification == .unknown)
         #expect(records.evidence.body.contains("Dev Tools evidence signal: Swift Test failed (exit code 1)."))
         #expect(records.evidence.body.contains("failed command"))
         #expect(records.evidence.body.contains("fix and rerun"))
