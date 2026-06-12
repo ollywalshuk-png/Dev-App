@@ -7,7 +7,6 @@ struct MainWorkspaceView: View {
     var body: some View {
         VStack(spacing: 0) {
             ProjectTabStrip(store: store)
-            Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HeaderView(store: store)
@@ -89,15 +88,20 @@ private struct HeaderView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(store.selectedModule.rawValue)
                     .font(.largeTitle.weight(.semibold))
+                    .lineLimit(1)
                 Text(store.statusMessage)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
             Spacer()
             Label(store.isScanning ? "Scanning" : "Read-only", systemImage: store.isScanning ? "waveform.path.ecg" : "eye")
+                .font(.caption.weight(.semibold))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(.quaternary, in: Capsule())
+                .liquidGlassSurface(cornerRadius: 8, tint: store.isScanning ? .orange : .blue, isActive: store.isScanning)
         }
+        .padding(16)
+        .liquidGlassSurface(cornerRadius: 8, tint: .accentColor)
     }
 }
 
@@ -108,14 +112,17 @@ private struct ProjectTabStrip: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 if store.projects.isEmpty {
-                    Text("No projects open")
+                    Label("No projects open", systemImage: "folder")
+                        .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 8)
+                        .liquidGlassSurface(cornerRadius: 8, tint: .secondary)
                 } else {
                     ForEach(store.projects) { project in
                         let snapshot = store.snapshots[project.id]
                         let kind = snapshot?.identity.kind ?? .unidentified
+                        let isSelected = project.id == store.selectedProjectID
                         Button {
                             store.selectProject(project)
                         } label: {
@@ -125,20 +132,22 @@ private struct ProjectTabStrip: View {
                                     .frame(width: 8, height: 8)
                                 Image(systemName: kind.symbolName)
                                     .foregroundStyle(kind.tint)
+                                    .frame(width: 16)
                                 Text(project.name)
                                     .lineLimit(1)
+                                    .frame(maxWidth: 180, alignment: .leading)
                                 if let snapshot {
                                     Text("\(snapshot.findings.count)")
                                         .font(.caption2.weight(.bold))
                                         .foregroundStyle(.secondary)
+                                        .frame(minWidth: 18)
                                 }
                             }
+                            .font(.caption.weight(isSelected ? .semibold : .medium))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(project.id == store.selectedProjectID ? Color.accentColor.opacity(0.28) : Color.secondary.opacity(0.12))
-                            )
+                            .frame(height: 34)
+                            .liquidGlassSurface(cornerRadius: 8, tint: kind.tint, isActive: isSelected)
                         }
                         .buttonStyle(.plain)
                     }
@@ -146,6 +155,12 @@ private struct ProjectTabStrip: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
+        }
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.10))
+                .frame(height: 1)
         }
     }
 }

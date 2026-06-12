@@ -83,6 +83,32 @@ struct DevToolsEvidenceProvenanceTests {
         #expect(!records.evidence.body.contains("signingsecret123"))
     }
 
+    @Test("npm test failure creates linked build and test records")
+    func npmTestFailureCreatesWorkflowTelemetry() throws {
+        let started = Date(timeIntervalSince1970: 1_717_000_150)
+        let command = try preset(.npmTest, projectMarkers: [.packageJSON])
+        let result = DevToolsCommandResult(
+            command: command,
+            status: .failure,
+            output: "npm test failed\napi_key=abcdef123",
+            startedAt: started,
+            endedAt: started.addingTimeInterval(8),
+            exitCode: 1
+        )
+
+        let records = DevCommandEngine().provenanceRecords(for: result, author: "Dev Tools")
+        let build = try #require(records.build)
+        let test = try #require(records.test)
+
+        #expect(records.evidence.area == "Tests")
+        #expect(build.buildType == .npmTest)
+        #expect(build.linkedEvidenceIDs == [records.evidence.id])
+        #expect(test.name == "npm test")
+        #expect(test.outcome == .failed)
+        #expect(test.linkedEvidenceIDs == [records.evidence.id])
+        assertRedacted(records.evidence.body)
+    }
+
     @Test("environment capture creates environment evidence and a redacted snapshot")
     func environmentCaptureCreatesEnvironmentRecord() throws {
         let started = Date(timeIntervalSince1970: 1_717_000_200)
@@ -155,8 +181,22 @@ struct DevToolsEvidenceProvenanceTests {
 
     private func preset(
         _ kind: DevToolsCommandKind,
-        root: String = "/tmp/localforge-devtools-provenance"
+        root: String? = nil,
+        projectMarkers: Set<ProjectMarker> = []
     ) throws -> DevToolsCommand {
+        let fm = FileManager.default
+        let root = root ?? fm.temporaryDirectory.appendingPathComponent("lf-devtools-provenance-\(UUID().uuidString)").path
+        let rootURL = URL(fileURLWithPath: root)
+        try? fm.removeItem(at: rootURL)
+        try fm.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: rootURL) }
+        if projectMarkers.contains(.packageJSON) {
+            try Data("{}".utf8).write(to: rootURL.appendingPathComponent("package.json"))
+        }
+        if projectMarkers.contains(.xcodeProject) {
+            try fm.createDirectory(at: rootURL.appendingPathComponent("App.xcodeproj"), withIntermediateDirectories: true)
+        }
+
         let commands = DevCommandEngine().presets(
             projectRoot: root,
             appBundlePath: "\(root)/Build/LocalForge.app"
@@ -168,5 +208,10 @@ struct DevToolsEvidenceProvenanceTests {
         #expect(text.contains("[REDACTED_SECRET]") || text.contains("[REDACTED_PRIVATE_PATH]"))
         #expect(!text.contains("api_key=abcdef123"))
         #expect(!text.contains("/Users/chris/private"))
+    }
+
+    private enum ProjectMarker: Hashable {
+        case packageJSON
+        case xcodeProject
     }
 }

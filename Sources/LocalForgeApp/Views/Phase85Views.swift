@@ -566,20 +566,23 @@ struct BuildHistoryView: View {
 
     var body: some View {
         if let project = store.selectedProject {
+            let history = store.buildHistory(for: project.id)
+            let summary = BuildTelemetrySummary(records: history)
             ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                     header(project: project)
                     ExplanationCard(
                         title: "Build History",
-                        what: "Build History records build observations, whether entered manually or captured from Dev Tools.",
-                        why: "A build record is useful evidence, but it does not automatically verify the Build area until promoted or linked.",
-                        next: "Log a successful or failed build, then promote successful output to evidence when you want it to support verification.",
-                        safety: "Manual build records only update LocalForge's local workspace. Dev Tools presets run only when clicked.",
+                        what: "Build History records compiler and validation workflow observations, whether entered manually or captured from Dev Tools.",
+                        why: "Build telemetry gives repeated Swift, Xcode, and npm-style runs a local trend line instead of isolated notes.",
+                        next: "Run an approved Dev Tools preset or log a build, then promote successful output when it should support verification.",
+                        safety: "Records stay local. Dev Tools presets are project-scoped, allowlisted, and only run when clicked.",
                         symbol: "hammer.circle",
                         tint: .orange
                     )
+                    telemetryPanel(summary: summary)
                     addCard
-                    listCard(project: project)
+                    listCard(project: project, history: history)
                 }
                 .padding(20)
             }
@@ -587,6 +590,59 @@ struct BuildHistoryView: View {
             ContentUnavailableView("No project selected", systemImage: "hammer.circle",
                 description: Text("Select a project to view its build history."))
         }
+    }
+
+    private func telemetryPanel(summary: BuildTelemetrySummary) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("Build Workflow Telemetry", systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.headline)
+                Spacer()
+                Text(summary.latestStatusDisplay)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(colorForResult(summary.latestRecord?.result ?? .unknown))
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                BuildTelemetryMetric(
+                    title: "Runs",
+                    value: "\(summary.totalRuns)",
+                    detail: "\(summary.completedRuns) completed",
+                    symbol: "play.rectangle.on.rectangle",
+                    color: .blue
+                )
+                BuildTelemetryMetric(
+                    title: "Success Rate",
+                    value: summary.successRateDisplay,
+                    detail: "\(summary.successCount) success / \(summary.failureCount) failed",
+                    symbol: "checkmark.seal",
+                    color: summary.failureCount == 0 ? .green : .orange
+                )
+                BuildTelemetryMetric(
+                    title: "Average",
+                    value: summary.averageDurationDisplay,
+                    detail: "Completed durations",
+                    symbol: "timer",
+                    color: .teal
+                )
+                BuildTelemetryMetric(
+                    title: "Workflows",
+                    value: "\(summary.trackedTypes.count)",
+                    detail: summary.trackedTypesDisplay,
+                    symbol: "terminal",
+                    color: .purple
+                )
+            }
+            if let lastFailure = summary.latestFailedRecord {
+                Label(
+                    "Latest failed run: \(lastFailure.buildType.rawValue) at \(lastFailure.startTime.formatted(date: .abbreviated, time: .shortened))",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+        }
+        .padding(14)
+        .liquidGlassSurface(cornerRadius: 8, tint: .orange)
     }
 
     private func header(project: ProjectContext) -> some View {
@@ -617,13 +673,11 @@ struct BuildHistoryView: View {
             }
         }
         .padding(14)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .liquidGlassSurface(cornerRadius: 8, tint: .orange)
     }
 
-    private func listCard(project: ProjectContext) -> some View {
-        let history = store.buildHistory(for: project.id)
-        return VStack(alignment: .leading, spacing: 8) {
+    private func listCard(project: ProjectContext, history: [BuildRecord]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             Text("HISTORY").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             Text("Build records are a journal of what you ran. They do not auto-verify the Build area — promote a successful record to evidence to attach it.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -685,6 +739,38 @@ struct BuildHistoryView: View {
         case .cancelled: .secondary
         case .unknown: .gray
         }
+    }
+}
+
+private struct BuildTelemetryMetric: View {
+    var title: String
+    var value: String
+    var detail: String
+    var symbol: String
+    var color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .foregroundStyle(color)
+                    .frame(width: 16)
+                Text(title.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+            Text(value)
+                .font(.title3.weight(.semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(detail)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
+        .liquidGlassSurface(cornerRadius: 8, tint: color)
     }
 }
 

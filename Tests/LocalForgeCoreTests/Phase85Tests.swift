@@ -182,6 +182,43 @@ struct Phase85Tests {
         #expect(long.durationDisplay.contains("m"))
     }
 
+    @Test("build telemetry summary tracks rates durations and workflow types")
+    func buildTelemetrySummary() {
+        let start = Date(timeIntervalSince1970: 1_717_000_000)
+        let records = [
+            BuildRecord(
+                buildType: .swiftBuild,
+                startTime: start,
+                endTime: start.addingTimeInterval(20),
+                result: .success
+            ),
+            BuildRecord(
+                buildType: .npmTest,
+                startTime: start.addingTimeInterval(60),
+                endTime: start.addingTimeInterval(100),
+                result: .failure
+            ),
+            BuildRecord(
+                buildType: .xcodeBuild,
+                startTime: start.addingTimeInterval(120),
+                result: .unknown
+            ),
+        ]
+
+        let summary = BuildTelemetrySummary(records: records)
+
+        #expect(summary.totalRuns == 3)
+        #expect(summary.completedRuns == 2)
+        #expect(summary.successCount == 1)
+        #expect(summary.failureCount == 1)
+        #expect(summary.successRateDisplay == "50%")
+        #expect(summary.averageDurationDisplay == "30s")
+        #expect(summary.trackedTypes == [.swiftBuild, .xcodeBuild, .npmTest])
+        #expect(summary.latestStatusDisplay == "xcodebuild - Unknown")
+        #expect(summary.latestSuccessfulRecord?.buildType == .swiftBuild)
+        #expect(summary.latestFailedRecord?.buildType == .npmTest)
+    }
+
     @Test("environment snapshot comparison identifies changed toolchain fields")
     func environmentComparison() {
         let previous = EnvironmentSnapshot(

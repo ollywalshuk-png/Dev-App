@@ -24,11 +24,11 @@ struct DevToolsView: View {
             header(project)
             ExplanationCard(
                 title: "Dev Tools",
-                what: "Dev Tools runs approved local presets such as build, test, Git status, signing checks, and environment capture.",
-                why: "The output becomes evidence, so build and test work can support verification without using a free-form terminal.",
-                next: "Run Swift Build or Swift Test, then review the created build, test, and evidence records.",
+                what: "Dev Tools runs approved local presets such as Swift, Xcode, npm, Git status, signing checks, and environment capture.",
+                why: "The output becomes evidence and build telemetry, so compiler and validation work can support verification without using a free-form terminal.",
+                next: "Run a detected build or test preset, then review the created build, test, and evidence records.",
                 safety: "Preset-only. No shell strings, no automatic fixes, no commits, no pushes, no deletes, and no background polling.",
-                example: "Swift Test creates a BuildRecord, TestRecord, and EvidenceRecord. It still does not automatically mark verification as passed.",
+                example: "Test presets create BuildRecord, TestRecord, and EvidenceRecord entries. They still do not automatically mark verification as passed.",
                 symbol: "terminal",
                 tint: .teal
             )
@@ -133,9 +133,6 @@ struct DevToolsView: View {
                     output: snapshot.summaryLines.joined(separator: "\n"),
                     startedAt: started
                 )
-                await MainActor.run {
-                    store.addEnvironmentSnapshot(snapshot, for: project.id)
-                }
             } else {
                 result = await engine.run(command, projectRoot: project.rootURL.path)
             }
@@ -150,55 +147,16 @@ struct DevToolsView: View {
     }
 
     private func capture(_ result: DevToolsCommandResult, projectID: UUID) {
-        let evidence = EvidenceRecord(
-            area: result.command.verificationArea,
-            kind: result.command.kind == .environmentCapture ? .environment : .logExcerpt,
-            summary: "\(result.command.title): \(result.status.rawValue)",
-            body: result.output,
-            classification: result.status == .success ? .observed : .unknown
-        )
-        store.addEvidence(evidence, for: projectID)
-
-        switch result.command.kind {
-        case .swiftBuild:
-            store.addBuildRecord(
-                BuildRecord(
-                    buildType: .swiftBuild,
-                    startTime: result.startedAt,
-                    endTime: result.endedAt,
-                    result: result.status.buildResult,
-                    notes: result.output,
-                    linkedEvidenceIDs: [evidence.id],
-                    linkedVerificationAreas: ["Build"]
-                ),
-                for: projectID
-            )
-        case .swiftTest:
-            store.addBuildRecord(
-                BuildRecord(
-                    buildType: .swiftTest,
-                    startTime: result.startedAt,
-                    endTime: result.endedAt,
-                    result: result.status.buildResult,
-                    notes: result.output,
-                    linkedEvidenceIDs: [evidence.id],
-                    linkedVerificationAreas: ["Tests"]
-                ),
-                for: projectID
-            )
-            store.addTestRecord(
-                TestRecord(
-                    name: "swift test",
-                    kind: .automated,
-                    outcome: result.status.testOutcome,
-                    linkedVerificationArea: "Tests",
-                    notes: result.output,
-                    author: NSFullUserName()
-                ),
-                for: projectID
-            )
-        case .gitStatus, .codesignVerify, .gatekeeperCheck, .environmentCapture:
-            break
+        let records = engine.provenanceRecords(for: result, author: NSFullUserName())
+        store.addEvidence(records.evidence, for: projectID)
+        if let build = records.build {
+            store.addBuildRecord(build, for: projectID)
+        }
+        if let test = records.test {
+            store.addTestRecord(test, for: projectID)
+        }
+        if let environment = records.environment {
+            store.addEnvironmentSnapshot(environment, for: projectID)
         }
 
         store.statusMessage = "\(result.command.title) \(result.status.rawValue.lowercased())."
@@ -253,6 +211,10 @@ private struct DevCommandCard: View {
         switch command.kind {
         case .swiftBuild: "hammer"
         case .swiftTest: "testtube.2"
+        case .xcodeBuild: "hammer.circle"
+        case .xcodeTest: "checklist"
+        case .npmBuild: "shippingbox"
+        case .npmTest: "curlybraces"
         case .gitStatus: "point.3.connected.trianglepath.dotted"
         case .codesignVerify: "signature"
         case .gatekeeperCheck: "lock.shield"

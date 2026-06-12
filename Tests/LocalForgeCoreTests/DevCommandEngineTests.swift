@@ -5,10 +5,14 @@ import Testing
 @Suite("Phase 10A — Dev command engine safety")
 struct DevCommandEngineTests {
     @Test("dev command presets are project scoped and allowlisted")
-    func presetsAreScopedAndAllowlisted() {
+    func presetsAreScopedAndAllowlisted() throws {
+        let fm = FileManager.default
+        let rootURL = fm.temporaryDirectory.appendingPathComponent("lf-devtools-presets-\(UUID().uuidString)")
+        try fm.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: rootURL) }
+
         let engine = DevCommandEngine()
-        let root = "/tmp/localforge-devtools"
-        let presets = engine.presets(projectRoot: root, appBundlePath: "/tmp/App.app")
+        let presets = engine.presets(projectRoot: rootURL.path, appBundlePath: "/tmp/App.app")
 
         #expect(presets.map(\.kind) == [
             .swiftBuild,
@@ -18,9 +22,31 @@ struct DevCommandEngineTests {
             .gatekeeperCheck,
             .environmentCapture,
         ])
-        #expect(presets.allSatisfy { $0.workingDirectory == root })
+        #expect(presets.allSatisfy { $0.workingDirectory == rootURL.path })
         #expect(presets.first { $0.kind == .swiftBuild }?.arguments.contains("build") == true)
         #expect(presets.first { $0.kind == .swiftTest }?.arguments.contains("test") == true)
+    }
+
+    @Test("dev command presets include xcode and npm workflows when project markers exist")
+    func presetsIncludeDetectedBuildWorkflows() throws {
+        let fm = FileManager.default
+        let rootURL = fm.temporaryDirectory.appendingPathComponent("lf-devtools-workflows-\(UUID().uuidString)")
+        try fm.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: rootURL.appendingPathComponent("package.json"))
+        try fm.createDirectory(at: rootURL.appendingPathComponent("App.xcodeproj"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: rootURL) }
+
+        let engine = DevCommandEngine()
+        let presets = engine.presets(projectRoot: rootURL.path)
+
+        #expect(presets.contains { $0.kind == .xcodeBuild && $0.arguments == ["xcodebuild", "build"] })
+        #expect(presets.contains { $0.kind == .xcodeTest && $0.arguments == ["xcodebuild", "test"] })
+        #expect(presets.contains { $0.kind == .npmBuild && $0.arguments == ["npm", "run", "build"] })
+        #expect(presets.contains { $0.kind == .npmTest && $0.arguments == ["npm", "test"] })
+        let workflowKinds: Set<DevToolsCommandKind> = [.xcodeBuild, .xcodeTest, .npmBuild, .npmTest]
+        #expect(presets.filter { workflowKinds.contains($0.kind) }.allSatisfy {
+            engine.validate($0, projectRoot: rootURL.path) == nil
+        })
     }
 
     @Test("mutating git command is blocked by argument allowlist")

@@ -25,6 +25,58 @@ extension ProjectKind {
     }
 }
 
+struct LiquidGlassSurface: ViewModifier {
+    var cornerRadius: CGFloat = 8
+    var tint: Color = .accentColor
+    var isActive: Bool = false
+
+    func body(content: Content) -> some View {
+        content
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(.thinMaterial)
+                    .overlay(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isActive ? 0.26 : 0.16),
+                                tint.opacity(isActive ? 0.18 : 0.08),
+                                Color.black.opacity(0.08),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(isActive ? 0.34 : 0.20),
+                                tint.opacity(isActive ? 0.46 : 0.20),
+                                Color.black.opacity(0.10),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: isActive ? 1.2 : 1
+                    )
+            )
+            .shadow(color: tint.opacity(isActive ? 0.18 : 0.07), radius: isActive ? 12 : 7, x: 0, y: 3)
+    }
+}
+
+extension View {
+    func liquidGlassSurface(
+        cornerRadius: CGFloat = 8,
+        tint: Color = .accentColor,
+        isActive: Bool = false
+    ) -> some View {
+        modifier(LiquidGlassSurface(cornerRadius: cornerRadius, tint: tint, isActive: isActive))
+    }
+}
+
 /// Traffic-light health derived from a snapshot's findings + access state.
 enum ProjectHealth {
     case healthy, warning, critical, attention, unknown

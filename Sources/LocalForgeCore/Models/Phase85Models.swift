@@ -533,6 +533,9 @@ public enum BuildType: String, Codable, CaseIterable, Hashable, Sendable {
     case swiftBuild = "swift build"
     case swiftTest = "swift test"
     case xcodeBuild = "xcodebuild"
+    case xcodeTest = "xcodebuild test"
+    case npmBuild = "npm build"
+    case npmTest = "npm test"
     case auVal = "auval"
     case custom = "Custom"
 }
@@ -614,6 +617,74 @@ public struct BuildRecord: Identifiable, Codable, Hashable, Sendable {
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
         linkedEvidenceIDs = try c.decodeIfPresent([UUID].self, forKey: .linkedEvidenceIDs) ?? []
         linkedVerificationAreas = try c.decodeIfPresent([String].self, forKey: .linkedVerificationAreas) ?? []
+    }
+}
+
+public struct BuildTelemetrySummary: Hashable, Sendable {
+    public var totalRuns: Int
+    public var successCount: Int
+    public var failureCount: Int
+    public var warningCount: Int
+    public var cancelledCount: Int
+    public var unknownCount: Int
+    public var trackedTypes: [BuildType]
+    public var averageDuration: TimeInterval?
+    public var latestRecord: BuildRecord?
+    public var latestSuccessfulRecord: BuildRecord?
+    public var latestFailedRecord: BuildRecord?
+
+    public init(records: [BuildRecord]) {
+        let sorted = records.sorted { $0.startTime > $1.startTime }
+        totalRuns = sorted.count
+        successCount = sorted.filter { $0.result == .success }.count
+        failureCount = sorted.filter { $0.result == .failure }.count
+        warningCount = sorted.filter { $0.result == .warning }.count
+        cancelledCount = sorted.filter { $0.result == .cancelled }.count
+        unknownCount = sorted.filter { $0.result == .unknown }.count
+        trackedTypes = BuildType.allCases.filter { type in
+            sorted.contains { $0.buildType == type }
+        }
+
+        let durations = sorted.compactMap(\.duration)
+        if durations.isEmpty {
+            averageDuration = nil
+        } else {
+            averageDuration = durations.reduce(0, +) / Double(durations.count)
+        }
+
+        latestRecord = sorted.first
+        latestSuccessfulRecord = sorted.first { $0.result == .success }
+        latestFailedRecord = sorted.first { $0.result == .failure }
+    }
+
+    public var completedRuns: Int {
+        successCount + failureCount + warningCount + cancelledCount
+    }
+
+    public var successRate: Double? {
+        guard completedRuns > 0 else { return nil }
+        return Double(successCount) / Double(completedRuns)
+    }
+
+    public var successRateDisplay: String {
+        guard let successRate else { return "—" }
+        return "\(Int((successRate * 100).rounded()))%"
+    }
+
+    public var averageDurationDisplay: String {
+        guard let averageDuration else { return "—" }
+        if averageDuration < 60 { return "\(Int(averageDuration.rounded()))s" }
+        return "\(Int(averageDuration / 60))m \(Int(averageDuration.truncatingRemainder(dividingBy: 60).rounded()))s"
+    }
+
+    public var trackedTypesDisplay: String {
+        guard !trackedTypes.isEmpty else { return "None yet" }
+        return trackedTypes.map(\.rawValue).joined(separator: ", ")
+    }
+
+    public var latestStatusDisplay: String {
+        guard let latestRecord else { return "No runs" }
+        return "\(latestRecord.buildType.rawValue) - \(latestRecord.result.rawValue)"
     }
 }
 
