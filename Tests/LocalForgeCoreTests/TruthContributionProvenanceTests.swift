@@ -4,6 +4,81 @@ import Testing
 
 @Suite("Truth contribution provenance")
 struct TruthContributionProvenanceTests {
+    @Test("provenance row identifiers are stable across incidental whitespace")
+    func provenanceRowIdentifiersCanonicalizeWhitespace() {
+        let canonical = TruthContributionProvenanceRow(
+            sourceKind: .verificationGap,
+            sourceIdentifier: "",
+            sourceArea: "Release Build",
+            status: VerificationState.unknown.rawValue,
+            direction: .negative,
+            reason: "In-scope area has no verified record yet.",
+            releaseRelevant: true
+        )
+        let noisy = TruthContributionProvenanceRow(
+            sourceKind: .verificationGap,
+            sourceIdentifier: " \n\t ",
+            sourceArea: "  Release   Build  ",
+            status: VerificationState.unknown.rawValue,
+            direction: .negative,
+            reason: "In-scope   area\nhas no verified record yet.",
+            releaseRelevant: true
+        )
+
+        #expect(noisy.id == canonical.id)
+        #expect(canonical.id == "Verification Gap|Release Build|Negative|In-scope area has no verified record yet.")
+    }
+
+    @Test("provenance rows expose deterministic audit sorting")
+    func provenanceRowsExposeDeterministicAuditSorting() {
+        let evidence = TruthContributionProvenanceRow(
+            sourceKind: .evidence,
+            sourceIdentifier: "evidence-2",
+            sourceArea: "Build",
+            status: EvidenceClassification.measured.rawValue,
+            direction: .positive,
+            reason: "Measured evidence counts as strong supporting evidence.",
+            releaseRelevant: true
+        )
+        let verification = TruthContributionProvenanceRow(
+            sourceKind: .verification,
+            sourceIdentifier: "verification-1",
+            sourceArea: "Build",
+            status: VerificationState.verified.rawValue,
+            freshness: .fresh,
+            direction: .positive,
+            reason: "Critical priority verified record contributes positive, age-decayed Reality signal.",
+            releaseRelevant: true
+        )
+        let assumption = TruthContributionProvenanceRow(
+            sourceKind: .assumption,
+            sourceIdentifier: "assumption-3",
+            sourceArea: "Build",
+            status: AssumptionStatus.active.rawValue,
+            direction: .negative,
+            reason: "Active assumption reduces trust until verified or superseded.",
+            releaseRelevant: true
+        )
+        let risk = TruthContributionProvenanceRow(
+            sourceKind: .risk,
+            sourceIdentifier: "risk-4",
+            sourceArea: "Build",
+            status: RiskStatus.open.rawValue,
+            direction: .negative,
+            reason: "Open high risk reduces Reality score.",
+            releaseRelevant: false
+        )
+        let expectedIDs = [
+            evidence.id,
+            verification.id,
+            assumption.id,
+            risk.id
+        ]
+
+        #expect(TruthContributionProvenanceRow.auditSorted([risk, assumption, verification, evidence]).map(\.id) == expectedIDs)
+        #expect([assumption, evidence, risk, verification].sorted().map(\.id) == expectedIDs)
+    }
+
     @Test("material score contributors return structured provenance rows")
     func materialScoreContributorsReturnStructuredRows() {
         let now = Date()
