@@ -29,7 +29,7 @@ public struct DevCommandEngine: Sendable {
     }
 
     public func presets(projectRoot: String, appBundlePath: String? = nil) -> [DevToolsCommand] {
-        [
+        var commands = [
             DevToolsCommand(
                 kind: .swiftBuild,
                 title: "Swift Build",
@@ -52,6 +52,63 @@ public struct DevCommandEngine: Sendable {
                 timeout: 180,
                 verificationArea: "Tests"
             ),
+        ]
+
+        if hasXcodeProject(at: projectRoot) {
+            commands.append(contentsOf: [
+                DevToolsCommand(
+                    kind: .xcodeBuild,
+                    title: "Xcode Build",
+                    detail: "Runs xcodebuild build for Xcode app and framework projects.",
+                    executable: "/usr/bin/env",
+                    arguments: ["xcodebuild", "build"],
+                    workingDirectory: projectRoot,
+                    risk: .buildWrites,
+                    timeout: 300,
+                    verificationArea: "Build"
+                ),
+                DevToolsCommand(
+                    kind: .xcodeTest,
+                    title: "Xcode Test",
+                    detail: "Runs xcodebuild test and records the result as test evidence.",
+                    executable: "/usr/bin/env",
+                    arguments: ["xcodebuild", "test"],
+                    workingDirectory: projectRoot,
+                    risk: .buildWrites,
+                    timeout: 600,
+                    verificationArea: "Tests"
+                ),
+            ])
+        }
+
+        if hasPackageJSON(at: projectRoot) {
+            commands.append(contentsOf: [
+                DevToolsCommand(
+                    kind: .npmBuild,
+                    title: "npm Build",
+                    detail: "Runs npm run build for Node or web projects with package.json.",
+                    executable: "/usr/bin/env",
+                    arguments: ["npm", "run", "build"],
+                    workingDirectory: projectRoot,
+                    risk: .buildWrites,
+                    timeout: 240,
+                    verificationArea: "Build"
+                ),
+                DevToolsCommand(
+                    kind: .npmTest,
+                    title: "npm Test",
+                    detail: "Runs npm test and records the result as test evidence.",
+                    executable: "/usr/bin/env",
+                    arguments: ["npm", "test"],
+                    workingDirectory: projectRoot,
+                    risk: .buildWrites,
+                    timeout: 240,
+                    verificationArea: "Tests"
+                ),
+            ])
+        }
+
+        commands.append(contentsOf: [
             DevToolsCommand(
                 kind: .gitStatus,
                 title: "Git Status",
@@ -98,7 +155,9 @@ public struct DevCommandEngine: Sendable {
                 timeout: 15,
                 verificationArea: "Environment"
             ),
-        ]
+        ])
+
+        return commands
     }
 
     public func validate(_ command: DevToolsCommand, projectRoot: String) -> DevToolsCommandResult? {
@@ -220,6 +279,14 @@ public struct DevCommandEngine: Sendable {
             buildType = .swiftBuild
         case .swiftTest:
             buildType = .swiftTest
+        case .xcodeBuild:
+            buildType = .xcodeBuild
+        case .xcodeTest:
+            buildType = .xcodeTest
+        case .npmBuild:
+            buildType = .npmBuild
+        case .npmTest:
+            buildType = .npmTest
         case .gitStatus, .codesignVerify, .gatekeeperCheck, .environmentCapture:
             return nil
         }
@@ -241,9 +308,9 @@ public struct DevCommandEngine: Sendable {
         evidenceID: UUID,
         author: String
     ) -> TestRecord? {
-        guard result.command.kind == .swiftTest else { return nil }
+        guard [.swiftTest, .xcodeTest, .npmTest].contains(result.command.kind) else { return nil }
         return TestRecord(
-            name: "swift test",
+            name: testRecordName(for: result.command.kind),
             kind: .automated,
             outcome: result.status.testOutcome,
             linkedVerificationArea: result.command.verificationArea,
@@ -316,6 +383,14 @@ public struct DevCommandEngine: Sendable {
             arguments == swiftEnvironment + ["swift", "build", "--cache-path", ".build/swiftpm-cache"]
         case .swiftTest:
             arguments == swiftEnvironment + ["swift", "test", "--cache-path", ".build/swiftpm-cache"]
+        case .xcodeBuild:
+            arguments == ["xcodebuild", "build"]
+        case .xcodeTest:
+            arguments == ["xcodebuild", "test"]
+        case .npmBuild:
+            arguments == ["npm", "run", "build"]
+        case .npmTest:
+            arguments == ["npm", "test"]
         case .gitStatus:
             arguments == ["status", "--short", "--branch"]
         case .codesignVerify:
@@ -324,6 +399,28 @@ public struct DevCommandEngine: Sendable {
             arguments.count == 3 && arguments[0...1] == ["--assess", "--verbose=4"]
         case .environmentCapture:
             arguments.isEmpty
+        }
+    }
+
+    private func hasXcodeProject(at projectRoot: String) -> Bool {
+        guard let items = try? FileManager.default.contentsOfDirectory(atPath: projectRoot) else { return false }
+        return items.contains { $0.hasSuffix(".xcodeproj") || $0.hasSuffix(".xcworkspace") }
+    }
+
+    private func hasPackageJSON(at projectRoot: String) -> Bool {
+        FileManager.default.fileExists(atPath: URL(fileURLWithPath: projectRoot).appendingPathComponent("package.json").path)
+    }
+
+    private func testRecordName(for kind: DevToolsCommandKind) -> String {
+        switch kind {
+        case .swiftTest:
+            "swift test"
+        case .xcodeTest:
+            "xcodebuild test"
+        case .npmTest:
+            "npm test"
+        case .swiftBuild, .xcodeBuild, .npmBuild, .gitStatus, .codesignVerify, .gatekeeperCheck, .environmentCapture:
+            "test command"
         }
     }
 

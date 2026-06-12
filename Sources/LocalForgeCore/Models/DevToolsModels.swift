@@ -3,6 +3,10 @@ import Foundation
 public enum DevToolsCommandKind: String, Codable, CaseIterable, Hashable, Sendable {
     case swiftBuild = "Swift Build"
     case swiftTest = "Swift Test"
+    case xcodeBuild = "Xcode Build"
+    case xcodeTest = "Xcode Test"
+    case npmBuild = "npm Build"
+    case npmTest = "npm Test"
     case gitStatus = "Git Status"
     case codesignVerify = "Codesign Verify"
     case gatekeeperCheck = "Gatekeeper Check"
