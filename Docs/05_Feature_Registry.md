@@ -136,6 +136,26 @@ Developer trust planning docs:
 - Added `Docs/39_Upstream_Release_Handoff.md` to define the permission, checksum, notarisation, stapler, Gatekeeper, and release-notes handoff for moving fork releases upstream without sharing secrets.
 - No runtime feature or scoring change was added by these documents.
 
+Truth Debt release gates:
+
+- Added `TruthDebtEngine`, `TruthDebtGate`, and `TruthDebtReport` as a local,
+  read-only release-claim evaluation over existing snapshots, evidence, risks,
+  and assumptions.
+- Gates cover missing mission context, missing strong evidence, unverified or
+  failed areas, stale verification, blocked dependencies, release-blocking
+  risks, active assumptions, and contradictory evidence.
+- Critical and High in-scope debt blocks release-ready claims; lower-priority
+  debt remains a caveat unless linked to a blocking risk or condition.
+- Added `TruthDebtGateTests` for Critical/High blockers, lower-priority
+  caveats, contradictory evidence, and dependency blockers.
+- Added `Docs/40_Truth_Debt_Gates.md` to define the concept, anti-claims,
+  relationship to Truth Centre percentage/provenance and Release Readiness, and
+  preservation rules for future agents.
+- This core entry does not add persistence, command execution, automatic
+  release approval, background scan, repository mutation, or score
+  recalculation. UI surfaces must stay read-only presentations of the same
+  deterministic gate report.
+
 Local secret scan foundation:
 
 - Added `SecretScannerEngine`, a selected-repository-scoped, local-only scanner
