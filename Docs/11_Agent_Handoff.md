@@ -24,7 +24,7 @@ Start here:
 20. V1.5 Development Intelligence is documented in `Docs/31_V1_5_Development_Intelligence_Roadmap.md`. Treat it as roadmap unless a capability is already implemented and only needs explanation or polish.
 21. Phase 10C adds Recommendations as a safe-intelligence foundation. `CodeBloatScannerEngine` is repo-scoped and read-only; it flags source files over 1,750 lines and creates `RecommendationRecord` metadata. Approval states record user intent only and must not be treated as permission to execute arbitrary fixes.
 22. Phase 10E records the current validation baseline, human validation backlog, and Phase 10F-20 capability roadmap in `Docs/33_Phase_10E_Roadmap_Release_Baseline.md`. Phase 11 release engineering lives in `Docs/34_Release_Engineering_Checklist.md`.
-23. Developer trust strategy lives in `Docs/35_Developer_Trust_Strategy.md`; Truth Centre stress gates live in `Docs/36_Truth_Centre_Stress_Plan.md`. Treat them as product/test guidance until implemented and verified.
+23. Developer trust strategy lives in `Docs/35_Developer_Trust_Strategy.md`; developer-tools market positioning lives in `Docs/38_Developer_Tools_Market_Positioning.md`; Truth Centre stress gates live in `Docs/36_Truth_Centre_Stress_Plan.md`. Treat them as product/test guidance until implemented and verified.
 24. `SecretScannerEngine` is a Phase 16 foundation slice. It is selected-repository-scoped, local-only, redacts matched values, and creates Safety recommendations only. Do not turn it into background scanning, automatic deletion, history rewriting, credential rotation, cloud upload, commit, or push automation.
 
 Useful commands:

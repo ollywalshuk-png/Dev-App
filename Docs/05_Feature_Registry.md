@@ -132,6 +132,7 @@ Developer trust planning docs:
 
 - Added `Docs/35_Developer_Trust_Strategy.md` to define LocalForge's market-grade developer trust contract and Truth Centre percentage/provenance role.
 - Added `Docs/36_Truth_Centre_Stress_Plan.md` to define measurable stress gates for future Truth Centre accuracy claims.
+- Added `Docs/38_Developer_Tools_Market_Positioning.md` to define LocalForge's developer-tools market category, true current claims, anti-claims, and Truth Centre positioning.
 - No runtime feature or scoring change was added by these documents.
 
 Local secret scan foundation:
