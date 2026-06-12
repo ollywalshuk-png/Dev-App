@@ -69,7 +69,7 @@ Phase 9B (Registry UI + visual polish):
 
 - Test Registry module: manual/automated/integration/regression/host test records grouped by kind, editable outcomes including Blocked, linked verification area display, evidence count, release-readiness impact, copy summary.
 - Dedicated Environment Registry module: manual environment capture using the existing Utility Centre engine, snapshot history, latest-vs-previous comparison, copy summary.
-- Diagnostic rain background: local SwiftUI Canvas visual layer with persisted settings for enablement, intensity, and inactive-window reduction; respects reduced motion and remains faint in light mode.
+- Diagnostic rain background: local SwiftUI Canvas visual layer with persisted settings for enablement, intensity, and inactive-window reduction; respects reduced motion and remains light-mode aware.
 - Phase 9B persistence coverage: environment snapshots and test records are included in the full SQLite round-trip fixture; diagnostic background settings decode from old workspaces with defaults.
 
 Phase 9C (Professional polish):
@@ -117,6 +117,16 @@ Phase 10C / V1.6 (Safe intelligence + approval framework foundation):
 - Recommendation state changes create evidence and journal entries.
 - Approval records intent only; no automatic code rewrite, file split, commit, push, delete, merge, daemon, or background polling was added.
 - Added `Docs/32_Phase_10C_V1_6_Safe_Intelligence_and_Approval_Framework.md`.
+
+Phase 10E (Roadmap consolidation and release baseline):
+
+- Added a stable roadmap and validation baseline in `Docs/33_Phase_10E_Roadmap_Release_Baseline.md`.
+- Added the Phase 11 release engineering checklist in `Docs/34_Release_Engineering_Checklist.md`.
+- Clarified that source control is restored and future work should use reviewable branches/PRs.
+- Re-stated the human validation items still needed before any release-quality claim.
+- Re-stated the approval-gated safety model for future mutating actions.
+- Increased the diagnostic code background's visual identity with stronger intensity levels, accent-tinted fixed-grid streams, larger tokens, and less aggressive light-mode dimming while preserving Reduce Motion, inactive-window reduction, and non-interactive rendering.
+- No runtime feature, auto-fix, auto-commit, auto-push, cloud, telemetry, AI, daemon, or whole-disk scanning capability was added.
 
 Foundation stubs (deferred by design):
 

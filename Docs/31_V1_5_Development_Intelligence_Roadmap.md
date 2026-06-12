@@ -55,6 +55,24 @@ Deferred by design:
 - Automatic repository modification
 - Background daemons or polling
 
+## Stable Next Roadmap
+
+Phase 10E consolidates the next capability plan in
+`Docs/33_Phase_10E_Roadmap_Release_Baseline.md`. Treat the following as
+roadmap, not implementation claims:
+
+- Phase 10F - Manual validation completion.
+- Phase 11 - Release engineering.
+- Phase 12 - Build intelligence.
+- Phase 13 - Repository intelligence.
+- Phase 14 - Test intelligence.
+- Phase 15 - System / environment health.
+- Phase 16 - Security intelligence.
+- Phase 17 - Developer toolbox.
+- Phase 18 - Apple development centre.
+- Phase 19 - Agent centre.
+- Phase 20 - Optional local AI layer.
+
 ## Developer Intelligence Layer
 
 ### Project Structure Analysis

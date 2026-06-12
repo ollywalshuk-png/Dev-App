@@ -9,7 +9,7 @@
 - AUv3 detection is a heuristic (Info.plist `AudioComponents` / `.appex`) and is labelled Inferred, not Verified.
 - Test Registry is a read-only record keeper in Phase 9B; the separate Testing foundation stub is still not an automated runner.
 - Environment Registry captures only on explicit user action; no Repo Monitor, whole-disk watch, or background polling is implemented.
-- The workspace folder `/Users/studiomacmini/Desktop/App assets/Dev App` has been initialised as a fresh Git repository after confirming no `.git` existed in the folder or immediate children. Initial commit is still pending; all source/docs files are currently untracked until the operator approves staging and commit.
+- Source control has been restored and the repository has a committed `main` baseline. Future repository changes still need explicit branches, reviewable commits, and pull requests; LocalForge itself must not auto-commit, auto-push, auto-merge, or rewrite Git history.
 - Full UI validation is still partly human-only: Codex can build, launch, check codesign, inspect logs, and review source/tests, but cannot reliably click through macOS native panels and visual readability states without operator confirmation.
 - Build Intelligence is still manual in V1: Build History can record and promote successful builds into evidence, and Dev Tools can run preset build/test commands only on explicit click. There is no automated runner, daemon, polling loop, or free-form terminal.
 - V1.6 recommendations are approval metadata only. LocalForge can flag a source file over 1,750 lines and suggest a refactor direction, but it does not rewrite, split, or fix files automatically.

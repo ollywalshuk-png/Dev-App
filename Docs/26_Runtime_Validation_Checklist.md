@@ -14,6 +14,14 @@ This document is split into two classes per the agreed governance:
 Use this checklist before declaring any Phase 8.5 / Phase 9 work "done", and
 re-run it after any signing, persistence, or navigation change.
 
+Latest machine-observed baseline:
+
+- 2026-06-12: Xcode-toolchain `swift build` passed.
+- 2026-06-12: Xcode-toolchain `swift test` passed with 82 Swift Testing tests across 5 suites.
+- 2026-06-12: `./script/build_and_run.sh --verify` passed.
+- 2026-06-12: `codesign --verify --deep --strict --verbose=2 dist/LocalForge.app` passed.
+- The verified local bundle is ad-hoc signed. Developer ID signing, notarisation, stapling, and Gatekeeper distribution acceptance are Phase 11 work.
+
 ---
 
 ## Class A — Machine-verifiable
@@ -93,6 +101,17 @@ re-run it after any signing, persistence, or navigation change.
 
 You walk through these. The agent cannot see your screen, so these items are
 your responsibility to confirm. Tick each one as you verify it.
+
+### Phase 10F Priority Pass
+
+- [ ] Runtime validation pass completed from a clean launch
+- [ ] UI smoke test completed across Command Centre, Operations, and System modules
+- [ ] Utility Centre no-hang test completed
+- [ ] Dev Tools preset test completed for Swift Build, Swift Test, Git Status, Codesign Verify, Gatekeeper Check, and Environment Capture
+- [ ] Backup/export/import test completed
+- [ ] Settings persistence test completed after app relaunch
+- [ ] Diagnostic background visual review completed in light mode, dark mode, Reduce Motion, Still/Slow/Medium motion, and Off/Low/Medium/High intensity
+- [ ] Diagnostic background is visibly part of the app identity without obscuring text inside cards, panels, buttons, or navigation
 
 ### App shell
 
@@ -217,7 +236,7 @@ your responsibility to confirm. Tick each one as you verify it.
 - [ ] Intensity picker visibly changes the background strength without hurting readability
 - [ ] Density picker changes the fixed-grid fill level without token overlap
 - [ ] Motion picker switches between Still, Slow, and Medium continuous vertical motion
-- [ ] Light mode remains readable with the background faint
+- [ ] Light mode remains readable with the background visible but not dominant
 - [ ] macOS Reduce Motion freezes the animation
 
 ### Utility Centre
