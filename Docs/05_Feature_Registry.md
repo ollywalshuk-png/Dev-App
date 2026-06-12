@@ -12,7 +12,7 @@ Implemented:
 - Findings/evidence views.
 - Guardian panel.
 - Copyable report.
-- CLI scan/report/command assessment (scan prints detected type + Git branch/state).
+- CLI scan/report/command assessment (scan/report print Reality %, release state, evidence provenance, redaction/read-only boundaries, and Git branch/state).
 - Project recognition (`ProjectClassifier`): type + confidence badges across tabs, sidebar, list, detail, Guardian.
 - Read-only Git intelligence (`GitEngine`): branch, working-tree state, ahead/behind, last commit.
 - Traffic-light health pills, Git chips, guided empty state, and Posture cards.
