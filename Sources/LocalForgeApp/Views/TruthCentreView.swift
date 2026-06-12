@@ -77,6 +77,7 @@ private struct WorkspaceTruthTab: View {
         VStack(alignment: .leading, spacing: 14) {
             if let snapshot = store.selectedSnapshot {
                 truthScorePanel(snapshot: snapshot)
+                evidenceInspectionPanel(snapshot: snapshot)
                 stressPanel(snapshot: snapshot)
                 realityBreakdownCard(snapshot: snapshot)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12)], spacing: 12) {
@@ -147,17 +148,31 @@ private struct WorkspaceTruthTab: View {
                     Text("Last scan \(snapshot.scannedAt.formatted(date: .abbreviated, time: .shortened))")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
-                    Button {
-                        copyTruthBrief(snapshot: snapshot)
-                    } label: {
-                        Label("Copy Truth Brief", systemImage: "doc.on.doc")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .help("Copy the Reality score, confidence, evidence, blockers, score pressure, and next action")
                 }
             }
             ScoreTrack(value: snapshot.reality.score, color: scoreColor)
+            HStack(alignment: .center, spacing: 10) {
+                Label {
+                    Text("Local-only brief from this workspace's evidence, registers, and latest scan.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } icon: {
+                    Image(systemName: "lock.doc")
+                        .foregroundStyle(.indigo)
+                }
+                Spacer(minLength: 12)
+                Button {
+                    copyTruthBrief(snapshot: snapshot)
+                } label: {
+                    Label("Copy Truth Brief", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .help("Copy the Reality score, confidence, evidence, blockers, score pressure, and next action")
+            }
+            .padding(10)
+            .background(Color.indigo.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 10)], spacing: 10) {
                 TruthMetric(label: "Strong Evidence", value: "\(strongEvidence)", detail: "Observed, measured, verified", symbol: "doc.text.magnifyingglass", color: strongEvidence > 0 ? .green : .orange)
                 TruthMetric(label: "Open Blockers", value: "\(openBlockers)", detail: "Release-blocking risks", symbol: "exclamationmark.octagon", color: openBlockers > 0 ? .red : .gray)
@@ -172,6 +187,81 @@ private struct WorkspaceTruthTab: View {
                 symbol: openBlockers > 0 || summary.failed > 0 ? "exclamationmark.triangle" : "arrow.right.circle",
                 color: openBlockers > 0 || summary.failed > 0 ? .orange : .blue
             )
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func evidenceInspectionPanel(snapshot: RepoSnapshot) -> some View {
+        let projectID = store.selectedProjectID
+        let evidence = store.evidence(for: projectID)
+        let strong = strongestEvidence(evidence)
+        let weak = weakestEvidence(evidence)
+        let pressure = evidenceAreaPressure(snapshot: snapshot, evidence: evidence)
+        let breakdown = store.selectedRealityBreakdown
+        let positives = Array(breakdown.positives.sorted { $0.delta > $1.delta }.prefix(3))
+        let negatives = Array(breakdown.negatives.sorted { $0.delta < $1.delta }.prefix(3))
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Evidence Inspection")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Local provenance only: stored evidence records, linked registers, verification areas, and the latest scan.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                TruthHealthBadge(
+                    text: "\(strong.count) strong / \(weak.count) weak",
+                    color: weak.isEmpty ? .green : .orange
+                )
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
+                EvidenceSummaryColumn(
+                    title: "Strongest Evidence",
+                    subtitle: "Verified, measured, and observed proof.",
+                    records: Array(strong.prefix(3)),
+                    color: strong.isEmpty ? .gray : .green,
+                    emptyMessage: "No strong evidence is recorded yet."
+                )
+                EvidenceSummaryColumn(
+                    title: "Weakest Evidence",
+                    subtitle: "Inferred, assumed, and unknown proof to challenge.",
+                    records: Array(weak.prefix(3)),
+                    color: weak.isEmpty ? .gray : .orange,
+                    emptyMessage: "No weak evidence is recorded."
+                )
+            }
+
+            if !pressure.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Area Pressure")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(Array(pressure.prefix(4))) { item in
+                        EvidenceAreaPressureRow(summary: item)
+                    }
+                }
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 12)], spacing: 12) {
+                ScorePressureColumn(
+                    title: "Raises Score",
+                    contributions: positives,
+                    color: .green,
+                    emptyMessage: "No positive score pressure is recorded."
+                )
+                ScorePressureColumn(
+                    title: "Reduces Score",
+                    contributions: negatives,
+                    color: negatives.isEmpty ? .gray : .red,
+                    emptyMessage: "No negative score pressure is recorded."
+                )
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -407,6 +497,98 @@ private struct WorkspaceTruthTab: View {
         classification == .observed || classification == .measured || classification == .verified
     }
 
+    private func strongestEvidence(_ evidence: [EvidenceRecord]) -> [EvidenceRecord] {
+        evidence
+            .filter { isStrongEvidence($0.classification) }
+            .sorted {
+                let left = evidenceStrengthRank($0.classification)
+                let right = evidenceStrengthRank($1.classification)
+                if left == right { return $0.createdAt > $1.createdAt }
+                return left > right
+            }
+    }
+
+    private func weakestEvidence(_ evidence: [EvidenceRecord]) -> [EvidenceRecord] {
+        evidence
+            .filter { !isStrongEvidence($0.classification) }
+            .sorted {
+                let left = evidenceStrengthRank($0.classification)
+                let right = evidenceStrengthRank($1.classification)
+                if left == right { return $0.createdAt < $1.createdAt }
+                return left < right
+            }
+    }
+
+    private func evidenceStrengthRank(_ classification: EvidenceClassification) -> Int {
+        switch classification {
+        case .verified: 5
+        case .measured: 4
+        case .observed: 3
+        case .inferred: 2
+        case .assumed: 1
+        case .unknown: 0
+        }
+    }
+
+    private func evidenceAreaPressure(snapshot: RepoSnapshot, evidence: [EvidenceRecord]) -> [EvidenceAreaPressure] {
+        let grouped = Dictionary(grouping: evidence, by: \.area)
+        let areas = Set(grouped.keys).union(snapshot.verification.map(\.area))
+
+        return areas.map { area in
+            let records = grouped[area] ?? []
+            let strongCount = records.filter { isStrongEvidence($0.classification) }.count
+            let weakCount = records.count - strongCount
+            let state = snapshot.verification.first { $0.area == area }?.state
+            let priority = snapshot.applicability.first { $0.area == area }?.priority
+            return EvidenceAreaPressure(
+                area: area,
+                strongCount: strongCount,
+                weakCount: weakCount,
+                totalCount: records.count,
+                state: state,
+                priority: priority
+            )
+        }
+        .sorted {
+            let left = areaPressureScore($0)
+            let right = areaPressureScore($1)
+            if left == right { return $0.area < $1.area }
+            return left > right
+        }
+    }
+
+    private func areaPressureScore(_ pressure: EvidenceAreaPressure) -> Int {
+        var score = 0
+        switch pressure.state {
+        case .failed:
+            score += 50
+        case .unknown:
+            score += 35
+        case .inProgress:
+            score += 20
+        case .verified:
+            score += 0
+        case nil:
+            score += 15
+        }
+
+        if pressure.totalCount == 0 { score += 25 }
+        if pressure.strongCount == 0 { score += 12 }
+        score += pressure.weakCount * 6
+
+        switch pressure.priority {
+        case .critical:
+            score += 12
+        case .high:
+            score += 8
+        case .medium:
+            score += 4
+        case .low, nil:
+            score += 0
+        }
+        return score
+    }
+
     private func trustStatement(snapshot: RepoSnapshot, evidenceCount: Int, blockers: Int) -> String {
         if snapshot.verificationSummary.total == 0 {
             return "Truth is not stress-testable yet: no verification areas are tracked."
@@ -459,6 +641,14 @@ private struct WorkspaceTruthTab: View {
             breakdown.negatives.prefix(5).map { "\($0.label) (\($0.delta))" },
             empty: "None recorded"
         )
+        let strongest = markdownList(
+            strongestEvidence(evidence).prefix(5).map { "\($0.classification.rawValue): \($0.summary) (\($0.area))" },
+            empty: "None recorded"
+        )
+        let weakest = markdownList(
+            weakestEvidence(evidence).prefix(5).map { "\($0.classification.rawValue): \($0.summary) (\($0.area))" },
+            empty: "None recorded"
+        )
 
         return """
         # LocalForge Truth Brief
@@ -466,6 +656,7 @@ private struct WorkspaceTruthTab: View {
         Project: \(store.selectedProject?.name ?? snapshot.project.name)
         Generated: \(Date().formatted(date: .abbreviated, time: .shortened))
         Last scan: \(snapshot.scannedAt.formatted(date: .abbreviated, time: .shortened))
+        Provenance: LocalForge local records only. No project files or repository state are changed by copying this brief.
 
         ## Scores
 
@@ -482,6 +673,14 @@ private struct WorkspaceTruthTab: View {
         - Unknown verification areas: \(summary.unknown)
         - Stale verified areas: \(staleVerified)
         - Active assumptions: \(activeAssumptions)
+
+        ## Evidence At A Glance
+
+        Strongest:
+        \(strongest)
+
+        Weakest:
+        \(weakest)
 
         ## Score Pressure
 
@@ -511,6 +710,199 @@ private struct WorkspaceTruthTab: View {
         let values = Array(items)
         guard !values.isEmpty else { return "- \(empty)" }
         return values.map { "- \($0)" }.joined(separator: "\n")
+    }
+}
+
+private struct EvidenceAreaPressure: Identifiable {
+    var area: String
+    var strongCount: Int
+    var weakCount: Int
+    var totalCount: Int
+    var state: VerificationState?
+    var priority: VerificationPriority?
+
+    var id: String { area }
+}
+
+private struct EvidenceSummaryColumn: View {
+    var title: String
+    var subtitle: String
+    var records: [EvidenceRecord]
+    var color: Color
+    var emptyMessage: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14, weight: .semibold))
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if records.isEmpty {
+                Text(emptyMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            } else {
+                ForEach(records) { record in
+                    EvidenceSummaryRow(record: record)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(10)
+        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct EvidenceSummaryRow: View {
+    var record: EvidenceRecord
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: record.kind.symbolName)
+                    .foregroundStyle(classificationColor)
+                    .frame(width: 18)
+                Text(record.summary)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 6) {
+                Pill(text: record.classification.rawValue, color: classificationColor)
+                Pill(text: record.area, color: .blue)
+                Spacer(minLength: 8)
+                Text(record.createdAt.formatted(date: .abbreviated, time: .omitted))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            if !record.body.isEmpty {
+                Text(record.body)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(9)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var classificationColor: Color {
+        switch record.classification {
+        case .verified, .measured, .observed:
+            .green
+        case .inferred:
+            .blue
+        case .assumed:
+            .orange
+        case .unknown:
+            .red
+        }
+    }
+}
+
+private struct EvidenceAreaPressureRow: View {
+    var summary: EvidenceAreaPressure
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: summary.state?.symbolName ?? "scope")
+                .foregroundStyle(stateColor)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 5) {
+                Text(summary.area)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    Pill(text: summary.state?.rawValue ?? "Untracked", color: stateColor)
+                    if let priority = summary.priority {
+                        Pill(text: priority.rawValue, color: priorityColor(priority))
+                    }
+                    Pill(text: "\(summary.totalCount) evidence", color: .indigo)
+                }
+            }
+            Spacer(minLength: 10)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(summary.strongCount) strong")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(summary.strongCount > 0 ? Color.green : Color.secondary)
+                Text("\(summary.weakCount) weak")
+                    .font(.caption2)
+                    .foregroundStyle(summary.weakCount > 0 ? Color.orange : Color.secondary)
+            }
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(stateColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var stateColor: Color {
+        switch summary.state {
+        case .verified:
+            .green
+        case .failed:
+            .red
+        case .inProgress:
+            .blue
+        case .unknown:
+            .orange
+        case nil:
+            .gray
+        }
+    }
+
+    private func priorityColor(_ priority: VerificationPriority) -> Color {
+        switch priority {
+        case .critical:
+            .red
+        case .high:
+            .orange
+        case .medium:
+            .blue
+        case .low:
+            .gray
+        }
+    }
+}
+
+private struct ScorePressureColumn: View {
+    var title: String
+    var contributions: [RealityContribution]
+    var color: Color
+    var emptyMessage: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(color)
+            if contributions.isEmpty {
+                Text(emptyMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+            } else {
+                ForEach(contributions) { item in
+                    ContributionRow(label: item.label, delta: item.delta)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(10)
+        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
