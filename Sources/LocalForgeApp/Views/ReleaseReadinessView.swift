@@ -22,6 +22,7 @@ struct ReleaseReadinessView: View {
                         symbol: "flag.checkered",
                         tint: .orange
                     )
+                    truthDebtPanel(project: project)
                     if board.rows.isEmpty {
                         ContentUnavailableView(
                             "No in-scope areas",
@@ -45,6 +46,74 @@ struct ReleaseReadinessView: View {
                 systemImage: "flag.checkered",
                 description: Text("Open a project to see its release readiness.")
             )
+        }
+    }
+
+    private func truthDebtPanel(project: ProjectContext) -> some View {
+        let report = truthDebtReport(for: project)
+        let status = report?.status ?? .defensible
+        let color = truthDebtColor(status)
+        let nextAction = report?.nextActions.first ?? "Keep release evidence fresh before making or distributing a release-ready claim."
+
+        return HStack(alignment: .center, spacing: 12) {
+            Image(systemName: truthDebtSymbol(status))
+                .font(.title3)
+                .foregroundStyle(color)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 8) {
+                    Text("TruthDebtEngine")
+                        .font(.caption.weight(.bold))
+                        .tracking(0.8)
+                        .foregroundStyle(.secondary)
+                    Text("Release Claim")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(color.opacity(0.16), in: Capsule())
+                        .foregroundStyle(color)
+                }
+                Text(report?.headline ?? "No truth debt gates detected for the current records.")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Next: \(nextAction)")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            CountTag(label: "Blockers", count: report?.blockers.count ?? 0, color: .red)
+            CountTag(label: "Caveats", count: report?.caveats.count ?? 0, color: .orange)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func truthDebtReport(for project: ProjectContext) -> TruthDebtReport? {
+        guard let snapshot = store.selectedSnapshot else { return nil }
+        return TruthDebtEngine().report(
+            snapshot: snapshot,
+            evidence: store.evidence(for: project.id),
+            risks: store.risks(for: project.id),
+            assumptions: store.assumptions(for: project.id)
+        )
+    }
+
+    private func truthDebtColor(_ status: TruthDebtStatus) -> Color {
+        switch status {
+        case .blocked: .red
+        case .caveated: .orange
+        case .defensible: .green
+        }
+    }
+
+    private func truthDebtSymbol(_ status: TruthDebtStatus) -> String {
+        switch status {
+        case .blocked: "exclamationmark.triangle.fill"
+        case .caveated: "exclamationmark.circle.fill"
+        case .defensible: "checkmark.shield.fill"
         }
     }
 
