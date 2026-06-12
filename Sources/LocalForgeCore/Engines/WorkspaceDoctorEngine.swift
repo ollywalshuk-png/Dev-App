@@ -199,6 +199,8 @@ public struct WorkspaceDoctorEngine: Sendable {
         let verification = record.verification ?? []
         let risks = record.risks ?? []
         let recommendations = record.recommendations ?? []
+        let buildHistory = record.buildHistory ?? []
+        let testRecords = record.testRecords ?? []
         let evidenceIDs = Set(evidence.map(\.id))
 
         let staleUnbacked = verification.filter { v in
@@ -261,6 +263,25 @@ public struct WorkspaceDoctorEngine: Sendable {
                 title: "\(recommendationsWithMissingEvidence.count) recommendation(s) reference missing evidence",
                 impact: "Actionable advice points at evidence records that no longer exist. Safety and release recommendations may be stale or unverifiable.",
                 recommendation: "Restore the evidence records or remove stale relatedEvidenceIDs from the recommendation."
+            ))
+        }
+
+        let diagnosticRecordsWithMissingEvidence =
+            buildHistory.filter { build in
+                build.linkedEvidenceIDs.contains { !evidenceIDs.contains($0) }
+            }.count
+            + testRecords.filter { test in
+                test.linkedEvidenceIDs.contains { !evidenceIDs.contains($0) }
+            }.count
+        if diagnosticRecordsWithMissingEvidence > 0 {
+            issues.append(.init(
+                kind: .missingReference,
+                severity: .high,
+                projectID: pid,
+                projectName: pname,
+                title: "\(diagnosticRecordsWithMissingEvidence) build/test diagnostic record(s) reference missing evidence",
+                impact: "Build or test history claims evidence linkage, but the linked evidence records no longer exist. Release and troubleshooting views may over-trust unauditable diagnostics.",
+                recommendation: "Restore the missing evidence records or clear stale linkedEvidenceIDs from the affected build/test records."
             ))
         }
 
