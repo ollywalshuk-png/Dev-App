@@ -34,9 +34,22 @@ public struct TruthEngine: Sendable {
         }
 
         // Evidence backing.
-        let strongEvidence = evidence.filter { [EvidenceClassification.observed, .measured, .verified].contains($0.classification) }
+        let evidenceGuard = guardedEvidence(evidence, verification: snapshot.verification)
+        let strongEvidence = evidenceGuard.supportingStrongEvidence
         if !strongEvidence.isEmpty {
             items.append(.init(label: "\(strongEvidence.count) evidence record(s) on file", delta: min(18, strongEvidence.count * 2)))
+        }
+        if evidenceGuard.unsupportedFailureCount > 0 {
+            items.append(.init(
+                label: "\(evidenceGuard.unsupportedFailureCount) failed evidence signal(s)",
+                delta: -min(12, evidenceGuard.unsupportedFailureCount * 3)
+            ))
+        }
+        if evidenceGuard.contradictoryAreaCount > 0 {
+            items.append(.init(
+                label: "\(evidenceGuard.contradictoryAreaCount) contradictory evidence area(s)",
+                delta: -min(12, evidenceGuard.contradictoryAreaCount * 4)
+            ))
         }
 
         // Mission coverage.
@@ -131,8 +144,8 @@ public struct TruthEngine: Sendable {
             )
         }
 
-        let strongClassifications: Set<EvidenceClassification> = [.observed, .measured, .verified]
-        for record in evidence where strongClassifications.contains(record.classification) {
+        let evidenceGuard = guardedEvidence(evidence, verification: snapshot.verification)
+        for record in evidenceGuard.supportingStrongEvidence {
             rows.append(
                 TruthContributionProvenanceRow(
                     sourceKind: .evidence,
@@ -141,6 +154,19 @@ public struct TruthEngine: Sendable {
                     status: record.classification.rawValue,
                     direction: .positive,
                     reason: "\(record.classification.rawValue) evidence counts as strong supporting evidence.",
+                    releaseRelevant: releaseRelevant(riskIDs: record.linkedRiskIDs, area: record.area)
+                )
+            )
+        }
+        for record in evidenceGuard.unsupportedFailureEvidence {
+            rows.append(
+                TruthContributionProvenanceRow(
+                    sourceKind: .evidence,
+                    sourceIdentifier: record.id.uuidString,
+                    sourceArea: record.area,
+                    status: record.classification.rawValue,
+                    direction: .negative,
+                    reason: "Failure-signalled evidence does not support the current verification state.",
                     releaseRelevant: releaseRelevant(riskIDs: record.linkedRiskIDs, area: record.area)
                 )
             )
@@ -255,8 +281,10 @@ public struct TruthEngine: Sendable {
         var score = 30
         var items: [RealityContribution] = []
 
-        // Strong evidence is the dominant factor.
-        let strong = evidence.filter { [EvidenceClassification.observed, .measured, .verified].contains($0.classification) }
+        // Strong evidence is the dominant factor, after filtering out records
+        // that fail or contradict the current area state.
+        let evidenceGuard = guardedEvidence(evidence, verification: snapshot.verification)
+        let strong = evidenceGuard.supportingStrongEvidence
         let weak = evidence.filter { $0.classification == .assumed || $0.classification == .unknown }
         if !strong.isEmpty {
             let d = min(50, strong.count * 5)
@@ -267,6 +295,16 @@ public struct TruthEngine: Sendable {
             let d = -min(15, weak.count * 3)
             score += d
             items.append(.init(label: "\(weak.count) weak evidence record(s) (Assumed/Unknown)", delta: d))
+        }
+        if evidenceGuard.unsupportedFailureCount > 0 {
+            let d = -min(25, evidenceGuard.unsupportedFailureCount * 6)
+            score += d
+            items.append(.init(label: "\(evidenceGuard.unsupportedFailureCount) failed evidence signal(s)", delta: d))
+        }
+        if evidenceGuard.contradictoryAreaCount > 0 {
+            let d = -min(20, evidenceGuard.contradictoryAreaCount * 8)
+            score += d
+            items.append(.init(label: "\(evidenceGuard.contradictoryAreaCount) contradictory evidence area(s)", delta: d))
         }
 
         // Coverage: evidence per in-scope area.
@@ -312,6 +350,132 @@ public struct TruthEngine: Sendable {
             summary = "Almost no evidence — most claims are assumed."
         }
         return ConfidenceAssessment(score: score, label: label, summary: summary, contributions: items)
+    }
+
+    private struct GuardedEvidence {
+        var supportingStrongEvidence: [EvidenceRecord]
+        var unsupportedFailureEvidence: [EvidenceRecord]
+        var contradictoryAreaCount: Int
+
+        var unsupportedFailureCount: Int {
+            unsupportedFailureEvidence.count
+        }
+    }
+
+    private func guardedEvidence(
+        _ evidence: [EvidenceRecord],
+        verification: [VerificationRecord]
+    ) -> GuardedEvidence {
+        let strong = evidence.filter { isStrongEvidence($0.classification) }
+        let verificationStateByArea = effectiveVerificationStateByArea(verification)
+        let strongByArea = Dictionary(grouping: strong) { evidenceAreaKey($0.area) }
+        let contradictoryAreaKeys = Set(strongByArea.compactMap { areaKey, records -> String? in
+            guard !areaKey.isEmpty else { return nil }
+            let hasFailure = records.contains(where: isFailureEvidence)
+            let hasSuccess = records.contains(where: isSuccessEvidence)
+            return hasFailure && hasSuccess ? areaKey : nil
+        })
+
+        var supportingStrongEvidence: [EvidenceRecord] = []
+        var unsupportedFailureEvidence: [EvidenceRecord] = []
+
+        for record in strong {
+            let areaKey = evidenceAreaKey(record.area)
+            let state = verificationStateByArea[areaKey]
+            let isFailure = isFailureEvidence(record)
+
+            if contradictoryAreaKeys.contains(areaKey) {
+                if isFailure, state != .failed {
+                    unsupportedFailureEvidence.append(record)
+                }
+                continue
+            }
+
+            if isFailure {
+                if state == .failed {
+                    supportingStrongEvidence.append(record)
+                } else {
+                    unsupportedFailureEvidence.append(record)
+                }
+            } else if state != .failed {
+                supportingStrongEvidence.append(record)
+            }
+        }
+
+        return GuardedEvidence(
+            supportingStrongEvidence: supportingStrongEvidence,
+            unsupportedFailureEvidence: unsupportedFailureEvidence,
+            contradictoryAreaCount: contradictoryAreaKeys.count
+        )
+    }
+
+    private func effectiveVerificationStateByArea(_ verification: [VerificationRecord]) -> [String: VerificationState] {
+        let grouped = Dictionary(grouping: verification) { evidenceAreaKey($0.area) }
+        return grouped.reduce(into: [:]) { states, item in
+            let (areaKey, records) = item
+            guard !areaKey.isEmpty else { return }
+            if records.contains(where: { $0.state == .failed }) {
+                states[areaKey] = .failed
+            } else {
+                states[areaKey] = records.max(by: verificationRecordSort)?.state
+            }
+        }
+    }
+
+    private func verificationRecordSort(_ lhs: VerificationRecord, _ rhs: VerificationRecord) -> Bool {
+        if lhs.updatedAt != rhs.updatedAt {
+            return lhs.updatedAt < rhs.updatedAt
+        }
+        return verificationStateRiskRank(lhs.state) < verificationStateRiskRank(rhs.state)
+    }
+
+    private func verificationStateRiskRank(_ state: VerificationState) -> Int {
+        switch state {
+        case .verified: 0
+        case .inProgress: 1
+        case .unknown: 2
+        case .failed: 3
+        }
+    }
+
+    private func evidenceAreaKey(_ area: String) -> String {
+        area.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func isStrongEvidence(_ classification: EvidenceClassification) -> Bool {
+        classification == .observed || classification == .measured || classification == .verified
+    }
+
+    private func isSuccessEvidence(_ evidence: EvidenceRecord) -> Bool {
+        guard isStrongEvidence(evidence.classification), !isFailureEvidence(evidence) else { return false }
+        if evidence.classification == .verified { return true }
+        return containsSuccessSignal(in: "\(evidence.summary) \(evidence.body)")
+    }
+
+    private func isFailureEvidence(_ evidence: EvidenceRecord) -> Bool {
+        guard isStrongEvidence(evidence.classification) else { return false }
+        return containsFailureSignal(in: "\(evidence.summary) \(evidence.body)")
+    }
+
+    private func containsSuccessSignal(in text: String) -> Bool {
+        text.range(
+            of: #"(?i)\b(pass(?:ed|es|ing)?|success(?:ful|fully)?|succeeded|works|working|green|clean|accepted|valid(?:ated)?|verified)\b"#,
+            options: .regularExpression
+        ) != nil
+    }
+
+    private func containsFailureSignal(in text: String) -> Bool {
+        if text.range(
+            of: #"(?i)\b(no|without|zero|0)\s+(fail(?:ed|ing|s|ure|ures)?|error(?:s)?|crash(?:es|ed)?)\b"#,
+            options: .regularExpression
+        ) != nil {
+            return false
+        }
+
+        return text.range(
+            of: #"(?i)\b(fail(?:ed|ing|s|ure|ures)?|error(?:s)?|broken|crash(?:ed|es)?|timeout|timed out|blocked|regression)\b"#,
+            options: .regularExpression
+        ) != nil
     }
 
     // MARK: - Register health
