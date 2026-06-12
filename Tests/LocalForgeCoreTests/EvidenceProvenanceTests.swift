@@ -84,7 +84,10 @@ struct EvidenceProvenanceTests {
         let old = Date().addingTimeInterval(-130.0 * 86_400.0)
         var snapshot = RepoSnapshot.fixture()
         snapshot.verification = [
-            VerificationRecord(area: "Release Build", state: .verified, updatedAt: old)
+            VerificationRecord(area: "Release Build", state: .verified, updatedAt: old),
+            VerificationRecord(area: "Notarisation", state: .failed),
+            VerificationRecord(area: "Release Notes", state: .inProgress),
+            VerificationRecord(area: "Installer QA", state: .unknown)
         ]
         snapshot.reality = RealityAssessment(
             score: 52,
@@ -140,6 +143,12 @@ struct EvidenceProvenanceTests {
         let report = ReportEngine().markdownReport(for: snapshot)
 
         #expect(report.contains("## Evidence Provenance"))
+        #expect(report.contains("## Trust Caveat"))
+        #expect(report.contains("- Reality score is a local snapshot signal, not a release-ready claim."))
+        #expect(report.contains("- Evidence floor: 3 verified/measured/observed record(s); 3 inferred/assumed/unknown record(s)."))
+        #expect(report.contains("- Stale trust: 1 verified record(s) need re-checking before handoff."))
+        #expect(report.contains("- Contradictions: 1 source(s) disagree (build); resolve before claiming confidence."))
+        #expect(report.contains("- Verification gaps: 1 failed, 1 in progress, 1 unknown."))
         #expect(report.contains("- Verified: 1 record(s)"))
         #expect(report.contains("- Measured: 1 record(s)"))
         #expect(report.contains("- Observed: 1 record(s)"))
