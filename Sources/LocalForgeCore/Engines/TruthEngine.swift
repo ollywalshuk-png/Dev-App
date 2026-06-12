@@ -254,28 +254,48 @@ public struct TruthEngine: Sendable {
     ) -> ConfidenceAssessment {
         var score = 30
         var items: [RealityContribution] = []
+        let inScopeAreaKeys = Set(snapshot.applicability.filter { $0.status.inScope }.map { normalizedArea($0.area) })
+        let inScopeVerificationAreaByID = snapshot.verification.reduce(into: [UUID: String]()) { areas, record in
+            let areaKey = normalizedArea(record.area)
+            guard inScopeAreaKeys.contains(areaKey) else { return }
+            areas[record.id] = areaKey
+        }
+        let evidenceForConfidence = evidence.filter {
+            evidenceCountsForConfidence(
+                $0,
+                inScopeAreaKeys: inScopeAreaKeys,
+                inScopeVerificationAreaByID: inScopeVerificationAreaByID
+            )
+        }
 
         // Strong evidence is the dominant factor.
-        let strong = evidence.filter { [EvidenceClassification.observed, .measured, .verified].contains($0.classification) }
-        let weak = evidence.filter { $0.classification == .assumed || $0.classification == .unknown }
+        let strong = evidenceForConfidence.filter { [EvidenceClassification.observed, .measured, .verified].contains($0.classification) }
+        let weak = evidenceForConfidence.filter { $0.classification == .assumed || $0.classification == .unknown }
         if !strong.isEmpty {
             let d = min(50, strong.count * 5)
             score += d
-            items.append(.init(label: "\(strong.count) strong evidence record(s)", delta: d))
+            let scope = inScopeAreaKeys.isEmpty ? "" : "in-scope "
+            items.append(.init(label: "\(strong.count) \(scope)strong evidence record(s)", delta: d))
         }
         if !weak.isEmpty {
             let d = -min(15, weak.count * 3)
             score += d
-            items.append(.init(label: "\(weak.count) weak evidence record(s) (Assumed/Unknown)", delta: d))
+            let scope = inScopeAreaKeys.isEmpty ? "" : "in-scope "
+            items.append(.init(label: "\(weak.count) \(scope)weak evidence record(s) (Assumed/Unknown)", delta: d))
         }
 
         // Coverage: evidence per in-scope area.
-        let inScopeAreas = Set(snapshot.applicability.filter { $0.status.inScope }.map(\.area))
-        let coveredAreas = Set(strong.map(\.area)).intersection(inScopeAreas).count
-        if !inScopeAreas.isEmpty {
-            let pct = Int(Double(coveredAreas) / Double(inScopeAreas.count) * 25)
+        let coveredAreaKeys = Set(strong.flatMap {
+            coveredConfidenceAreaKeys(
+                for: $0,
+                inScopeAreaKeys: inScopeAreaKeys,
+                inScopeVerificationAreaByID: inScopeVerificationAreaByID
+            )
+        })
+        if !inScopeAreaKeys.isEmpty {
+            let pct = Int(Double(coveredAreaKeys.count) / Double(inScopeAreaKeys.count) * 25)
             score += pct
-            items.append(.init(label: "Evidence covers \(coveredAreas)/\(inScopeAreas.count) in-scope area(s)", delta: pct))
+            items.append(.init(label: "Evidence covers \(coveredAreaKeys.count)/\(inScopeAreaKeys.count) in-scope area(s)", delta: pct))
         }
 
         // Recency: fresh verified records lift confidence.
@@ -312,6 +332,43 @@ public struct TruthEngine: Sendable {
             summary = "Almost no evidence — most claims are assumed."
         }
         return ConfidenceAssessment(score: score, label: label, summary: summary, contributions: items)
+    }
+
+    private func evidenceCountsForConfidence(
+        _ evidence: EvidenceRecord,
+        inScopeAreaKeys: Set<String>,
+        inScopeVerificationAreaByID: [UUID: String]
+    ) -> Bool {
+        if inScopeAreaKeys.isEmpty { return true }
+        if inScopeAreaKeys.contains(normalizedArea(evidence.area)) { return true }
+        if let linkedID = evidence.linkedID, inScopeVerificationAreaByID[linkedID] != nil { return true }
+        return evidence.linkedVerificationIDs.contains { inScopeVerificationAreaByID[$0] != nil }
+    }
+
+    private func coveredConfidenceAreaKeys(
+        for evidence: EvidenceRecord,
+        inScopeAreaKeys: Set<String>,
+        inScopeVerificationAreaByID: [UUID: String]
+    ) -> [String] {
+        var covered = Set<String>()
+        let areaKey = normalizedArea(evidence.area)
+        if inScopeAreaKeys.contains(areaKey) {
+            covered.insert(areaKey)
+        }
+        if let linkedID = evidence.linkedID,
+           let linkedArea = inScopeVerificationAreaByID[linkedID] {
+            covered.insert(linkedArea)
+        }
+        for id in evidence.linkedVerificationIDs {
+            if let linkedArea = inScopeVerificationAreaByID[id] {
+                covered.insert(linkedArea)
+            }
+        }
+        return Array(covered)
+    }
+
+    private func normalizedArea(_ area: String) -> String {
+        area.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     // MARK: - Register health
