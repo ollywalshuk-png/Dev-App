@@ -4,8 +4,8 @@ Date: 2026-06-12
 
 Status: implemented core release-claim evaluation, plus documentation. This
 document explains the merged `TruthDebtEngine` / `TruthDebtReport` concept. It
-does not claim a new UI, persistence layer, command runner, or release
-automation.
+does not claim persistence, command running, or release automation. UI surfaces,
+where present, must remain read-only presentations of this same report.
 
 ## Purpose
 
@@ -59,7 +59,6 @@ replace, or directly adjust the Reality percentage.
 
 They also do not claim:
 
-- a dedicated Truth Debt UI;
 - persisted Truth Debt records;
 - automatic release approval;
 - CI, notarisation, signing, or App Store readiness;
@@ -88,8 +87,8 @@ Truth Debt remains. A low percentage with no blocking gates still does not mean
 the project is good; it only means the current gate report did not find a
 Critical or High blocker in the supplied records.
 
-Future UI or handoff work may show Truth Debt next to the Truth Centre, but it
-must keep the distinction clear:
+UI or handoff work may show Truth Debt next to the Truth Centre, but it must
+keep the distinction clear:
 
 - the percentage says what the current records summarise;
 - provenance says which records explain the percentage;

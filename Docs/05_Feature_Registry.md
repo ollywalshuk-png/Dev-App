@@ -151,9 +151,10 @@ Truth Debt release gates:
 - Added `Docs/40_Truth_Debt_Gates.md` to define the concept, anti-claims,
   relationship to Truth Centre percentage/provenance and Release Readiness, and
   preservation rules for future agents.
-- No dedicated Truth Debt UI, persistence layer, command execution, automatic
+- This core entry does not add persistence, command execution, automatic
   release approval, background scan, repository mutation, or score
-  recalculation was added.
+  recalculation. UI surfaces must stay read-only presentations of the same
+  deterministic gate report.
 
 Local secret scan foundation:
 
