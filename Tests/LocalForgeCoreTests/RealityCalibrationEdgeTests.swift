@@ -23,6 +23,26 @@ struct RealityCalibrationEdgeTests {
         #expect(reality.chain.contains { $0.stage == .verified && $0.state != .reached })
     }
 
+    @Test("verified area matching normalizes reality risks and next action")
+    func verifiedAreaMatchingNormalizesRealityRisksAndNextAction() {
+        let verification = [
+            verificationRecord(" build ", .verified),
+            verificationRecord("AUTOMATED TESTS", .verified),
+            verificationRecord("Documentation", .verified),
+            verificationRecord("Changelog", .verified),
+        ]
+
+        let reality = assess(verification: verification)
+
+        #expect(!reality.topRisks.contains {
+            $0.localizedCaseInsensitiveContains("No verified evidence that build")
+        })
+        #expect(!reality.topRisks.contains {
+            $0.localizedCaseInsensitiveContains("No verified evidence that automated tests")
+        })
+        #expect(reality.nextAction.localizedCaseInsensitiveContains("All in-scope areas"))
+    }
+
     @Test("weak evidence does not lift confidence like strong evidence")
     func weakEvidenceDoesNotLiftConfidenceLikeStrongEvidence() {
         let verification = releaseApplicability().map { verificationRecord($0.area, .unknown) }

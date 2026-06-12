@@ -101,8 +101,8 @@ public struct RealityEngine: Sendable {
         where finding.severity >= .warning && [.observed, .measured, .verified].contains(finding.evidenceClassification) {
             topRisks.append("\(finding.title): \(finding.detail)")
         }
-        let verifiedAreas = Set(verification.filter { $0.state == .verified }.map(\.area))
-        for item in applicability where item.status == .required && !verifiedAreas.contains(item.area) {
+        let verifiedAreas = verifiedAreaKeys(from: verification)
+        for item in applicability where item.status == .required && !verifiedAreas.contains(verificationAreaKey(item.area)) {
             topRisks.append("No verified evidence that \(item.area.lowercased()) works.")
         }
         topRisks = dedupePrefix(topRisks, 6)
@@ -155,15 +155,20 @@ public struct RealityEngine: Sendable {
             return "Fix \(failing.area): it is currently failing\(failing.note.isEmpty ? "." : " — \(failing.note)")."
         }
         // Then verify the highest-priority area that is still unknown.
-        let verifiedAreas = Set(verification.filter { $0.state == .verified }.map(\.area))
-        let unknownInScope = applicability.filter { $0.status.inScope && !verifiedAreas.contains($0.area) }
+        let verifiedAreas = verifiedAreaKeys(from: verification)
+        let unknownInScope = applicability.filter { $0.status.inScope && !verifiedAreas.contains(verificationAreaKey($0.area)) }
         if let target = unknownInScope.first, let suggestion = suggestion(for: target.area) {
             return suggestion
         }
         if let top = findings.sorted(by: { $0.severity > $1.severity }).first(where: { $0.severity >= .warning }) {
             return "Investigate: \(top.title)."
         }
-        if !applicability.isEmpty, verifiedAreas.count >= applicability.filter({ $0.status.inScope }).count {
+        let inScopeAreaKeys = Set(
+            applicability
+                .filter { $0.status.inScope }
+                .map { verificationAreaKey($0.area) }
+        )
+        if !inScopeAreaKeys.isEmpty, inScopeAreaKeys.allSatisfy({ verifiedAreas.contains($0) }) {
             return "All in-scope areas are marked verified. Re-confirm periodically as verification ages."
         }
         return "Continue read-only monitoring; no in-scope verification gaps were identified."
@@ -381,6 +386,15 @@ public struct RealityEngine: Sendable {
 
     private func verificationAreaKey(_ area: String) -> String {
         area.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func verifiedAreaKeys(from verification: [VerificationRecord]) -> Set<String> {
+        Set(
+            verification
+                .filter { $0.state == .verified }
+                .map { verificationAreaKey($0.area) }
+                .filter { !$0.isEmpty }
+        )
     }
 
     private func describeState(identity: ProjectIdentity, git: GitStatus, mission: MissionProfile) -> String {
