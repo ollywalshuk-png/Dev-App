@@ -117,7 +117,8 @@ final class WorkspaceStore: ObservableObject {
         return releaseEngine.board(
             for: snapshot,
             evidence: evidence(for: id),
-            risks: risks(for: id)
+            risks: risks(for: id),
+            environments: environments(for: id)
         )
     }
 

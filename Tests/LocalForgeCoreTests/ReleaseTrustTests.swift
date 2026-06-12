@@ -137,6 +137,56 @@ struct ReleaseTrustTests {
         #expect(board.headline.contains("verified, fresh, unblocked evidence"))
     }
 
+    @Test("stale environment snapshot creates a release caveat")
+    func staleEnvironmentSnapshotCreatesReleaseCaveat() {
+        let snapshot = readyBuildSnapshot()
+        let staleEnvironment = environmentSnapshot(capturedAt: Date(timeIntervalSinceNow: -120 * 86_400))
+
+        let board = ReleaseReadinessEngine().board(
+            for: snapshot,
+            evidence: [strongEvidence(area: "Build")],
+            environments: [staleEnvironment]
+        )
+
+        #expect(board.status == .readyWithCaveats)
+        #expect(board.criticalRemaining == 0)
+        #expect(board.highRemaining == 0)
+        #expect(board.caveats == [
+            "Environment snapshot is stale. Capture a fresh local environment snapshot before release claims."
+        ])
+    }
+
+    @Test("incomplete environment snapshot creates a release caveat")
+    func incompleteEnvironmentSnapshotCreatesReleaseCaveat() {
+        let snapshot = readyBuildSnapshot()
+        let incompleteEnvironment = environmentSnapshot(swiftVersion: "", sdkVersion: "")
+
+        let board = ReleaseReadinessEngine().board(
+            for: snapshot,
+            evidence: [strongEvidence(area: "Build")],
+            environments: [incompleteEnvironment]
+        )
+
+        #expect(board.status == .readyWithCaveats)
+        #expect(board.caveats == [
+            "Environment snapshot is incomplete (missing Swift, SDK). Capture a fresh local environment snapshot before release claims."
+        ])
+    }
+
+    @Test("fresh complete environment snapshot keeps release ready")
+    func freshCompleteEnvironmentSnapshotKeepsReleaseReady() {
+        let snapshot = readyBuildSnapshot()
+
+        let board = ReleaseReadinessEngine().board(
+            for: snapshot,
+            evidence: [strongEvidence(area: "Build")],
+            environments: [environmentSnapshot()]
+        )
+
+        #expect(board.status == .ready)
+        #expect(board.caveats.isEmpty)
+    }
+
     private func releaseSnapshot(
         applicability: [ApplicabilityItem],
         verification: [VerificationRecord]
@@ -147,11 +197,38 @@ struct ReleaseTrustTests {
         return snapshot
     }
 
+    private func readyBuildSnapshot() -> RepoSnapshot {
+        releaseSnapshot(
+            applicability: [
+                ApplicabilityItem(area: "Build", status: .required, priority: .critical)
+            ],
+            verification: [
+                VerificationRecord(area: "Build", state: .verified)
+            ]
+        )
+    }
+
     private func strongEvidence(area: String) -> EvidenceRecord {
         EvidenceRecord(area: area, summary: "\(area) passed release validation", classification: .measured)
     }
 
     private func weakEvidence(area: String) -> EvidenceRecord {
         EvidenceRecord(area: area, summary: "\(area) expected to pass", classification: .assumed)
+    }
+
+    private func environmentSnapshot(
+        macOSVersion: String = "15.5",
+        xcodeVersion: String = "16.4",
+        swiftVersion: String = "6.1",
+        sdkVersion: String = "macosx15.5",
+        capturedAt: Date = Date()
+    ) -> EnvironmentSnapshot {
+        EnvironmentSnapshot(
+            macOSVersion: macOSVersion,
+            xcodeVersion: xcodeVersion,
+            swiftVersion: swiftVersion,
+            sdkVersion: sdkVersion,
+            capturedAt: capturedAt
+        )
     }
 }

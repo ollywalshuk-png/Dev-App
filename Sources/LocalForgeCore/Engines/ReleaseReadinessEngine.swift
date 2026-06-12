@@ -9,7 +9,8 @@ public struct ReleaseReadinessEngine: Sendable {
     public func board(
         for snapshot: RepoSnapshot,
         evidence evidenceRecords: [EvidenceRecord] = [],
-        risks: [RiskRecord] = []
+        risks: [RiskRecord] = [],
+        environments: [EnvironmentSnapshot] = []
     ) -> ReleaseReadinessBoard {
         let stateByArea = snapshot.verification.reduce(into: [String: VerificationState]()) { states, record in
             states[normalized(record.area)] = record.state
@@ -81,6 +82,9 @@ public struct ReleaseReadinessEngine: Sendable {
 
         let riskBlockers = risks.filter(\.isReleaseBlocking).map { $0.title }.sorted()
         let blockers = blockerNodes.sorted()
+        if let environmentCaveat = environmentSnapshotCaveat(environments) {
+            caveats.append(environmentCaveat)
+        }
 
         rows.sort { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority < rhs.priority }
@@ -232,6 +236,36 @@ public struct ReleaseReadinessEngine: Sendable {
 
     private func isStrongEvidence(_ classification: EvidenceClassification) -> Bool {
         classification == .observed || classification == .measured || classification == .verified
+    }
+
+    private func environmentSnapshotCaveat(_ environments: [EnvironmentSnapshot]) -> String? {
+        guard let latest = environments.sorted(by: { $0.capturedAt > $1.capturedAt }).first else { return nil }
+
+        let missingFields = [
+            ("macOS", latest.macOSVersion),
+            ("Xcode", latest.xcodeVersion),
+            ("Swift", latest.swiftVersion),
+            ("SDK", latest.sdkVersion),
+        ]
+        .filter { $0.1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        .map(\.0)
+
+        let age = VerificationAge.from(latest.capturedAt)
+        let recapture = "Capture a fresh local environment snapshot before release claims."
+
+        if !missingFields.isEmpty {
+            let fieldList = missingFields.joined(separator: ", ")
+            if age == .stale || age == .expired {
+                return "Environment snapshot is \(age.rawValue.lowercased()) and incomplete (missing \(fieldList)). \(recapture)"
+            }
+            return "Environment snapshot is incomplete (missing \(fieldList)). \(recapture)"
+        }
+
+        if age == .stale || age == .expired {
+            return "Environment snapshot is \(age.rawValue.lowercased()). \(recapture)"
+        }
+
+        return nil
     }
 
     private func normalized(_ value: String) -> String {
