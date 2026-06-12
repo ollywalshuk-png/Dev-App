@@ -38,6 +38,59 @@ public struct VerificationEngine: Sendable {
         VerificationSummary(records: records)
     }
 
+    /// Coverage that treats stale or untimestamped verified records as weaker than
+    /// fresh verification. This keeps the existing count summary intact while
+    /// giving trust-sensitive callers an honest recency-adjusted signal.
+    public func trustAdjustedCoverage(_ records: [VerificationRecord], now: Date = Date()) -> Double {
+        guard !records.isEmpty else { return 0 }
+        let trustedVerified = records.reduce(0.0) { total, record in
+            total + trust(for: record, now: now)
+        }
+        return trustedVerified / Double(records.count)
+    }
+
+    public func trust(for record: VerificationRecord, now: Date = Date()) -> Double {
+        trust(for: record.state, updatedAt: record.updatedAt, now: now)
+    }
+
+    /// Trust for a verification state when timestamp provenance may be missing
+    /// before it is materialized into a `VerificationRecord`.
+    public func trust(for state: VerificationState, updatedAt: Date?, now: Date = Date()) -> Double {
+        guard state == .verified else { return 0 }
+        return age(for: state, updatedAt: updatedAt, now: now).trust
+    }
+
+    public func age(for state: VerificationState, updatedAt: Date?, now: Date = Date()) -> VerificationAge {
+        state == .unknown ? .never : VerificationAge.from(updatedAt, now: now)
+    }
+
+    public func recencyCaveats(_ records: [VerificationRecord], now: Date = Date()) -> [String] {
+        records.compactMap { record in
+            recencyCaveat(area: record.area, state: record.state, updatedAt: record.updatedAt, now: now)
+        }
+    }
+
+    public func recencyCaveat(
+        area: String,
+        state: VerificationState,
+        updatedAt: Date?,
+        now: Date = Date()
+    ) -> String? {
+        guard state == .verified else { return nil }
+        switch age(for: state, updatedAt: updatedAt, now: now) {
+        case .fresh, .recent:
+            return nil
+        case .ageing:
+            return "\(area) verification is ageing; trust is reduced until refreshed."
+        case .stale:
+            return "\(area) verification is stale; re-confirm before treating it as current proof."
+        case .expired:
+            return "\(area) verification is expired; treat it as untrusted until re-confirmed."
+        case .never:
+            return "\(area) verification has no timestamp; treat it as untrusted until re-confirmed."
+        }
+    }
+
     public func timeline(_ records: [VerificationRecord]) -> [VerificationRecord] {
         records.sorted { lhs, rhs in
             if lhs.updatedAt == rhs.updatedAt {
