@@ -5,6 +5,29 @@ public struct DevCommandEngine: Sendable {
 
     public init() {}
 
+    public func provenanceRecords(
+        for result: DevToolsCommandResult,
+        author: String = ""
+    ) -> DevToolsProvenanceRecords {
+        let output = sanitizedOutput(result.output)
+        let evidence = EvidenceRecord(
+            area: result.command.verificationArea,
+            kind: result.command.kind == .environmentCapture ? .environment : .logExcerpt,
+            summary: "\(result.command.title): \(result.status.rawValue)",
+            body: output,
+            classification: evidenceClassification(for: result.status),
+            author: author,
+            createdAt: result.endedAt
+        )
+
+        return DevToolsProvenanceRecords(
+            evidence: evidence,
+            build: buildRecord(for: result, output: output, evidenceID: evidence.id),
+            test: testRecord(for: result, output: output, evidenceID: evidence.id, author: author),
+            environment: environmentSnapshot(for: result, output: output)
+        )
+    }
+
     public func presets(projectRoot: String, appBundlePath: String? = nil) -> [DevToolsCommand] {
         [
             DevToolsCommand(
@@ -176,7 +199,7 @@ public struct DevCommandEngine: Sendable {
         return DevToolsCommandResult(
             command: command,
             status: process.terminationStatus == 0 ? .success : .failure,
-            output: truncate(combined),
+            output: sanitizedOutput(combined),
             startedAt: started,
             exitCode: process.terminationStatus
         )
@@ -184,6 +207,91 @@ public struct DevCommandEngine: Sendable {
 
     public func blocked(_ command: DevToolsCommand, started: Date = Date(), reason: String) -> DevToolsCommandResult {
         DevToolsCommandResult(command: command, status: .blocked, output: reason, startedAt: started)
+    }
+
+    private func buildRecord(
+        for result: DevToolsCommandResult,
+        output: String,
+        evidenceID: UUID
+    ) -> BuildRecord? {
+        let buildType: BuildType
+        switch result.command.kind {
+        case .swiftBuild:
+            buildType = .swiftBuild
+        case .swiftTest:
+            buildType = .swiftTest
+        case .gitStatus, .codesignVerify, .gatekeeperCheck, .environmentCapture:
+            return nil
+        }
+
+        return BuildRecord(
+            buildType: buildType,
+            startTime: result.startedAt,
+            endTime: result.endedAt,
+            result: result.status.buildResult,
+            notes: output,
+            linkedEvidenceIDs: [evidenceID],
+            linkedVerificationAreas: [result.command.verificationArea]
+        )
+    }
+
+    private func testRecord(
+        for result: DevToolsCommandResult,
+        output: String,
+        evidenceID: UUID,
+        author: String
+    ) -> TestRecord? {
+        guard result.command.kind == .swiftTest else { return nil }
+        return TestRecord(
+            name: "swift test",
+            kind: .automated,
+            outcome: result.status.testOutcome,
+            linkedVerificationArea: result.command.verificationArea,
+            linkedEvidenceIDs: [evidenceID],
+            notes: output,
+            testedAt: result.endedAt,
+            author: author
+        )
+    }
+
+    private func environmentSnapshot(
+        for result: DevToolsCommandResult,
+        output: String
+    ) -> EnvironmentSnapshot? {
+        guard result.command.kind == .environmentCapture else { return nil }
+        let values = environmentValues(from: output)
+        return EnvironmentSnapshot(
+            macOSVersion: values["macOS"] ?? "",
+            xcodeVersion: values["Xcode"] ?? "",
+            swiftVersion: values["Swift"] ?? "",
+            sdkVersion: values["SDK"] ?? "",
+            auValVersion: values["auval"] ?? "",
+            capturedAt: result.startedAt,
+            notes: output
+        )
+    }
+
+    private func environmentValues(from output: String) -> [String: String] {
+        var values: [String: String] = [:]
+        for line in output.split(whereSeparator: \.isNewline) {
+            let parts = line.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            values[key] = value == "Unknown" ? "" : value
+        }
+        return values
+    }
+
+    private func evidenceClassification(for status: DevToolsRunStatus) -> EvidenceClassification {
+        switch status {
+        case .success:
+            .observed
+        case .failure, .timeout:
+            .measured
+        case .blocked:
+            .unknown
+        }
     }
 
     private var swiftEnvironment: [String] {
@@ -227,13 +335,44 @@ public struct DevCommandEngine: Sendable {
         return FileManager.default.fileExists(atPath: url.appendingPathComponent("Contents/Info.plist").path)
     }
 
-    private func truncate(_ data: Data) -> String {
-        if data.count <= Self.maxOutputBytes {
-            return String(data: data, encoding: .utf8) ?? ""
+    private func sanitizedOutput(_ data: Data) -> String {
+        sanitizedOutput(String(decoding: data, as: UTF8.self))
+    }
+
+    private func sanitizedOutput(_ text: String) -> String {
+        let redacted = ReportEngine().redact(text)
+        guard redacted.utf8.count > Self.maxOutputBytes else { return redacted }
+
+        var end = redacted.startIndex
+        var byteCount = 0
+        while end < redacted.endIndex {
+            let next = redacted.index(after: end)
+            let charByteCount = redacted[end].utf8.count
+            guard byteCount + charByteCount <= Self.maxOutputBytes else { break }
+            byteCount += charByteCount
+            end = next
         }
-        let prefix = data.prefix(Self.maxOutputBytes)
-        let text = String(data: prefix, encoding: .utf8) ?? ""
-        return text + "\n\n[output truncated at \(Self.maxOutputBytes) bytes]"
+
+        return String(redacted[..<end]) + "\n\n[output truncated at \(Self.maxOutputBytes) bytes]"
+    }
+}
+
+public struct DevToolsProvenanceRecords: Hashable, Sendable {
+    public var evidence: EvidenceRecord
+    public var build: BuildRecord?
+    public var test: TestRecord?
+    public var environment: EnvironmentSnapshot?
+
+    public init(
+        evidence: EvidenceRecord,
+        build: BuildRecord? = nil,
+        test: TestRecord? = nil,
+        environment: EnvironmentSnapshot? = nil
+    ) {
+        self.evidence = evidence
+        self.build = build
+        self.test = test
+        self.environment = environment
     }
 }
 
