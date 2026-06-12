@@ -15,7 +15,8 @@ struct DiagnosticRainBackground: View {
     private let tokenWidth = 6
     private let tokens = [
         "let", "var", "func", "struct", "enum", "await", "return", "state",
-        "cd", "git", "swift", "build", "test", "codesign", "status", "diff",
+        "truth", "verify", "risk", "release", "build", "test", "evidence", "vault",
+        "cd", "git", "swift", "xcode", "auval", "sign", "status", "diff",
         "{", "}", "[", "]", ":", "true", "false", "null",
         "0xA7F2", "0x4A3F", "FF91", "3C7A", "A42F", "7D9C",
         "0101", "1100", "1010", "0011",
@@ -36,7 +37,7 @@ struct DiagnosticRainBackground: View {
 
     private var effectiveOpacity: Double {
         var opacity = intensity.opacity
-        if colorScheme == .light { opacity *= 0.35 }
+        if colorScheme == .light { opacity *= 0.68 }
         if reduceWhenInactive && scenePhase != .active { opacity *= 0.25 }
         return opacity
     }
@@ -83,9 +84,44 @@ struct DiagnosticRainBackground: View {
                     : density.ambientAlpha * stream.brightness
                 let text = Text(token)
                     .font(.system(size: stream.fontSize, weight: trail == 0 ? .semibold : .regular, design: .monospaced))
-                    .foregroundStyle(Color.primary.opacity(alpha))
+                    .foregroundStyle(tokenColor(column: column, trail: trail, alpha: alpha))
                 context.draw(text, at: CGPoint(x: x, y: y), anchor: .topLeading)
             }
+        }
+    }
+
+    private func tokenColor(column: Int, trail: Int?, alpha: Double) -> Color {
+        let hue = streamHue(for: column)
+        let isAmbient = trail == nil
+        let isHead = trail == 0
+
+        switch colorScheme {
+        case .light:
+            return Color(
+                hue: hue,
+                saturation: isAmbient ? 0.38 : isHead ? 0.70 : 0.54,
+                brightness: isHead ? 0.42 : 0.34,
+                opacity: alpha
+            )
+        case .dark:
+            return Color(
+                hue: hue,
+                saturation: isAmbient ? 0.52 : isHead ? 0.88 : 0.72,
+                brightness: isHead ? 1.00 : 0.82,
+                opacity: alpha
+            )
+        @unknown default:
+            return Color.primary.opacity(alpha)
+        }
+    }
+
+    private func streamHue(for column: Int) -> Double {
+        switch positiveModulo(column * 17, 5) {
+        case 0: return 0.43 // green
+        case 1: return 0.50 // cyan
+        case 2: return 0.57 // blue
+        case 3: return 0.74 // violet
+        default: return 0.14 // amber
         }
     }
 
@@ -118,15 +154,15 @@ struct DiagnosticRainBackground: View {
             rowsPerSecond: rowsPerSecond,
             length: 8 + positiveModulo(column * 5, 9),
             phase: positiveModulo(column * 19, 80),
-            brightness: 0.55 + Double(positiveModulo(column * 23, 45)) / 100,
-            fontSize: 8.0 + CGFloat(positiveModulo(column * 7, 2))
+            brightness: 0.72 + Double(positiveModulo(column * 23, 42)) / 100,
+            fontSize: 9.0 + CGFloat(positiveModulo(column * 7, 2))
         )
     }
 
     private func opacity(forTrail trail: Int, length: Int, brightness: Double) -> Double {
-        if trail == 0 { return min(1, brightness * 1.55) }
+        if trail == 0 { return min(1, brightness * 1.75) }
         let remaining = 1.0 - Double(trail) / Double(max(length, 1))
-        return max(0.11, remaining * remaining * brightness * 1.2)
+        return max(0.16, remaining * remaining * brightness * 1.45)
     }
 
     private func positiveModulo(_ value: Int, _ modulus: Int) -> Int {
@@ -154,9 +190,9 @@ extension DiagnosticBackgroundIntensity {
     var opacity: Double {
         switch self {
         case .off: 0
-        case .low: 0.06
-        case .medium: 0.10
-        case .high: 0.14
+        case .low: 0.10
+        case .medium: 0.18
+        case .high: 0.28
         }
     }
 
@@ -173,17 +209,17 @@ extension DiagnosticBackgroundIntensity {
 extension DiagnosticBackgroundDensity {
     var columnWidth: CGFloat {
         switch self {
-        case .sparse: 58
-        case .balanced: 46
-        case .dense: 38
+        case .sparse: 62
+        case .balanced: 50
+        case .dense: 42
         }
     }
 
     var rowHeight: CGFloat {
         switch self {
-        case .sparse: 17.5
-        case .balanced: 15.5
-        case .dense: 14
+        case .sparse: 18.5
+        case .balanced: 16.5
+        case .dense: 15
         }
     }
 
@@ -205,9 +241,9 @@ extension DiagnosticBackgroundDensity {
 
     var ambientAlpha: Double {
         switch self {
-        case .sparse: 0.18
-        case .balanced: 0.25
-        case .dense: 0.30
+        case .sparse: 0.26
+        case .balanced: 0.34
+        case .dense: 0.40
         }
     }
 }

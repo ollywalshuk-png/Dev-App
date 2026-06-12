@@ -16,13 +16,14 @@ Start here:
 12. When adding a persisted collection to `PersistedProjectRecord`, also add its table + save/load wiring in `SQLitePersistenceStore` (and keep `position` ordering), or the new data silently won't persist.
 13. Phase 9B added routed Test Registry and Environment Registry screens using existing `TestRecord` / `EnvironmentSnapshot` models and store methods. Keep the separate `testing` module as a future automated-runner stub; do not merge it with the registry record keeper.
 14. Diagnostic rain is a local visual layer only (`DiagnosticRainBackground`) and is controlled by persisted `ThemePreferences`. Phase 9C settings are enablement, Intensity, Density, Motion, and reduce-when-inactive. It must remain fixed-grid, low-rate, disableable, non-overlapping, and respectful of Reduce Motion.
-15. Phase 10D initialised this workspace as a fresh Git repository after confirming `.git` was missing here and no immediate child repo existed. The initial commit is still pending. Do not run destructive Git commands; stage/commit only with operator approval.
+15. Source control is restored. The baseline `main` branch contains the four initial LocalForge commits listed in `Docs/33_Phase_10E_Roadmap_Release_Baseline.md`. Keep future work on focused branches and use reviewable PRs. LocalForge runtime code must still not auto-commit, auto-push, auto-merge, or rewrite repository history.
 16. Phase 9E records the remaining-work path in `Docs/30_Phase_9E_Remaining_Work_and_Deferred_Path.md`. Build Intelligence V1 is manual Build History -> Evidence promotion; automated command execution remains deferred.
 17. Phase 10A adds Dev Tools as preset-only command execution. Keep it selected-project-scoped, explicit-argument only, no shell strings, no automatic fixes, and no free-form terminal. Command output must feed existing evidence/build/test/environment records rather than parallel stores.
 18. New Phase 10A tests exist in `DevCommandEngineTests.swift`; rerun `swift test` when the sandbox/approval limit allows. The app build and launch path already compiles the product.
 19. Phase 10B adds the novice explanation layer using `ExplanationCard` in `Components.swift`. Reuse that component for future module guidance instead of inventing one-off helper panels.
 20. V1.5 Development Intelligence is documented in `Docs/31_V1_5_Development_Intelligence_Roadmap.md`. Treat it as roadmap unless a capability is already implemented and only needs explanation or polish.
 21. Phase 10C adds Recommendations as a safe-intelligence foundation. `CodeBloatScannerEngine` is repo-scoped and read-only; it flags source files over 1,750 lines and creates `RecommendationRecord` metadata. Approval states record user intent only and must not be treated as permission to execute arbitrary fixes.
+22. Phase 10E records the current validation baseline, human validation backlog, and Phase 10F-20 capability roadmap in `Docs/33_Phase_10E_Roadmap_Release_Baseline.md`. Phase 11 release engineering lives in `Docs/34_Release_Engineering_Checklist.md`.
 
 Useful commands:
 

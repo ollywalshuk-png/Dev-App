@@ -4,10 +4,10 @@ Date: 2026-06-11
 
 ## What remains before release-quality work
 
-1. Resolve source control.
-   - Current workspace: `/Users/studiomacmini/Desktop/App assets/Dev App`
-   - State: valid LocalForge SwiftPM package root, but not a Git repository.
-   - Allowed next actions: restore original `.git`, initialize new Git repo with operator approval, or explicitly manage this as a non-Git source bundle.
+1. Keep source control clean.
+   - State: resolved after the Phase 10D/10E baseline. The repository now has a committed `main` baseline.
+   - Allowed next actions: create focused branches, commit reviewable chunks, and open pull requests.
+   - Still prohibited in LocalForge runtime: auto-commit, auto-push, auto-merge, destructive Git automation, or history rewriting.
 
 2. Complete human UI validation.
    - Diagnostic background settings and readability.
@@ -50,5 +50,5 @@ The current app already has manual, read-only foundations for several deferred a
 - Read-only by default.
 - No background loops.
 - No whole-disk scope.
-- No source/repo modification without an explicit confirmation, preview, and rollback story.
+- No source/repo modification without explicit confirmation, preview, and rollback story.
 - Feed existing evidence, verification, reality, and release-readiness models instead of creating parallel systems.
