@@ -105,9 +105,8 @@ public struct GitEngine: Sendable {
 
         // Drain both pipes concurrently; a full stderr buffer must never block stdout.
         let group = DispatchGroup()
-        var outData = Data()
+        let stdoutBuffer = LockedGitOutput()
         let queue = DispatchQueue(label: "GitEngine.read", attributes: .concurrent)
-        let lock = NSLock()
 
         do {
             try process.run()
@@ -118,7 +117,7 @@ public struct GitEngine: Sendable {
         group.enter()
         queue.async {
             let data = stdout.fileHandleForReading.readDataToEndOfFile()
-            lock.lock(); outData = data; lock.unlock()
+            stdoutBuffer.store(data)
             group.leave()
         }
         group.enter()
@@ -134,7 +133,23 @@ public struct GitEngine: Sendable {
         process.waitUntilExit()
 
         guard process.terminationStatus == 0 else { return nil }
-        lock.lock(); let data = outData; lock.unlock()
-        return String(data: data, encoding: .utf8)
+        return String(data: stdoutBuffer.load(), encoding: .utf8)
+    }
+}
+
+private final class LockedGitOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func store(_ newValue: Data) {
+        lock.lock()
+        data = newValue
+        lock.unlock()
+    }
+
+    func load() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+        return data
     }
 }
