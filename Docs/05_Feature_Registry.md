@@ -134,6 +134,7 @@ Developer trust planning docs:
 - Added `Docs/36_Truth_Centre_Stress_Plan.md` to define measurable stress gates for future Truth Centre accuracy claims.
 - Added `Docs/38_Developer_Tools_Market_Positioning.md` to define LocalForge's developer-tools market category, true current claims, anti-claims, and Truth Centre positioning.
 - Added `Docs/39_Upstream_Release_Handoff.md` to define the permission, checksum, notarisation, stapler, Gatekeeper, and release-notes handoff for moving fork releases upstream without sharing secrets.
+- Added `Docs/41_Truth_Audit_Packets.md` as a documentation-only handoff direction for future Truth Centre audit packets that combine Reality score, Confidence, contribution provenance, Truth Debt gate status, and release-readiness wording.
 - No runtime feature or scoring change was added by these documents.
 
 Truth Debt release gates:
@@ -155,6 +156,11 @@ Truth Debt release gates:
   release approval, background scan, repository mutation, or score
   recalculation. UI surfaces must stay read-only presentations of the same
   deterministic gate report.
+- Future audit/handoff surfaces must treat release-ready language as blocked
+  or caveated until the cited local records, strong evidence, dependency state,
+  contribution provenance, and Truth Debt gates support the stronger claim.
+  Audit packet docs do not imply merged Metal/background-rendering work,
+  signing, notarisation, CI, or upstream release approval.
 
 Local secret scan foundation:
 

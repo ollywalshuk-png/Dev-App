@@ -72,8 +72,30 @@ Before claiming the Truth Centre is release-grade, require these checks:
   priority caveats, and preserve source identifiers where source records exist.
 - Copyable handoff output includes the percentage, top contributors, top
   penalties, and unresolved evidence gaps.
+- Future Truth Audit Packet output includes Reality score, Confidence,
+  contribution provenance, Truth Debt gate status, Release Readiness wording,
+  and explicit anti-claims for missing external release evidence.
 - Manual UI review confirms the percentage, confidence, and provenance remain
   readable in light mode and dark mode.
+
+## Audit Packet Exit Criteria
+
+Before a Truth Audit Packet can support stronger release language, require all
+of the following:
+
+- Every material positive score contribution has source provenance.
+- Confidence names weak, stale, missing, or assumed evidence instead of hiding
+  it behind the Reality percentage.
+- Critical and High in-scope Truth Debt gates are absent, or the release claim
+  remains blocked.
+- Lower-priority debt is listed as a caveat unless another release-blocking
+  condition elevates it.
+- Release Readiness wording matches the weakest supported signal across
+  Reality, Confidence, provenance, Truth Debt, and validation evidence.
+- External release checks are cited only when actually run and recorded.
+
+If any item fails, the packet may still be useful as a handoff, but it must not
+be described as release-ready.
 
 ## Stress Commands
 

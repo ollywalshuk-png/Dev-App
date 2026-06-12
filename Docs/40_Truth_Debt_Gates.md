@@ -94,6 +94,25 @@ keep the distinction clear:
 - provenance says which records explain the percentage;
 - gates say which unresolved debts block or caveat release-ready language.
 
+Future Truth Audit Packets are the expected handoff shape for this relationship.
+See `Docs/41_Truth_Audit_Packets.md`. Until packet runtime code and tests exist,
+that document is direction only, not an implemented export feature.
+
+## Release Language Contract
+
+Truth Debt gates constrain words, not just UI state:
+
+| Truth Debt status | Release wording |
+| --- | --- |
+| `Blocked` | Say blocked or not release-ready. Name the Critical/High gate and the source record when available. |
+| `Caveated` | Say caveated for the stated scope. Name the missing, stale, weak, or unresolved evidence. |
+| `Defensible` | Say defensible from local records only if Confidence and provenance also support it. External release checks still need evidence. |
+
+Do not let a high Reality score override this language. Do not imply CI,
+signing, notarisation, stapling, Gatekeeper acceptance, App Store readiness,
+upstream merge state, or Metal/background-rendering changes unless those facts
+are present in upstream `main` or in recorded validation evidence.
+
 ## Relationship To Release Readiness
 
 Release Readiness already evaluates in-scope verification areas, stale trust,
