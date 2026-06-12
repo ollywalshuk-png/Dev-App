@@ -41,7 +41,7 @@ public struct SearchHit: Identifiable, Hashable, Sendable {
     public var date: Date?
     /// Verification area context, when the hit relates to one (for jumps).
     public var area: String?
-    /// Risk-only: open + high severity → release-blocking filter.
+    /// True for release-blocking risks and evidence linked to them.
     public var isReleaseBlocking: Bool
 
     public init(
@@ -82,6 +82,9 @@ public struct SearchEngine: Sendable {
         for record in records {
             let pid = record.id
             let pname = record.name
+            let releaseBlockingRisks = record.risks?.filter(\.isReleaseBlocking) ?? []
+            let releaseBlockingRiskIDs = Set(releaseBlockingRisks.map(\.id))
+            let releaseBlockingEvidenceIDs = Set(releaseBlockingRisks.flatMap(\.linkedEvidenceIDs))
 
             if let snippet = match(query, in: [record.name, record.fallbackPath]) {
                 hits.append(.init(
@@ -113,11 +116,23 @@ public struct SearchEngine: Sendable {
             }
 
             for e in record.evidence ?? [] {
-                if let snippet = match(query, in: [e.summary, e.body, e.area, e.author, e.attachmentPath]) {
+                let isLinkedToReleaseBlocker = releaseBlockingEvidenceIDs.contains(e.id)
+                    || !releaseBlockingRiskIDs.isDisjoint(with: e.linkedRiskIDs)
+                let fields = [
+                    e.summary,
+                    e.body,
+                    e.area,
+                    e.author,
+                    e.attachmentPath,
+                    e.kind.rawValue,
+                    e.classification.rawValue,
+                ]
+                if let snippet = match(query, in: fields) {
                     hits.append(.init(
                         projectID: pid, projectName: pname, kind: .evidence,
                         recordID: e.id, title: e.summary, snippet: snippet,
-                        date: e.createdAt, area: e.area
+                        date: e.createdAt, area: e.area,
+                        isReleaseBlocking: isLinkedToReleaseBlocker
                     ))
                 }
             }
