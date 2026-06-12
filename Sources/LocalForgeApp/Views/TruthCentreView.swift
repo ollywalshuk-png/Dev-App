@@ -106,6 +106,8 @@ private struct WorkspaceTruthTab: View {
         let assumptions = store.assumptions(for: projectID)
         let summary = snapshot.verificationSummary
         let confidence = store.selectedConfidence
+        let breakdown = store.selectedRealityBreakdown
+        let confidenceProvenance = projectID.map { store.confidenceProvenance(for: $0) } ?? .empty
         let health = store.selectedRegisterHealth
         let registerCoverage = registerCoverageScore(health)
         let strongEvidence = evidence.filter { isStrongEvidence($0.classification) }.count
@@ -152,6 +154,14 @@ private struct WorkspaceTruthTab: View {
                 }
             }
             ScoreTrack(value: snapshot.reality.score, color: scoreColor)
+            ScoreProvenanceStrip(
+                realityScore: snapshot.reality.score,
+                confidence: confidence,
+                breakdown: breakdown,
+                confidenceProvenance: confidenceProvenance,
+                realityColor: scoreColor,
+                confidenceColor: confidenceColor(confidence.score)
+            )
             HStack(alignment: .center, spacing: 10) {
                 Label {
                     Text("Local-only brief from this workspace's evidence, registers, and latest scan.")
@@ -1082,6 +1092,165 @@ private struct ScorePressureColumn: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .padding(10)
         .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct ScoreProvenanceStrip: View {
+    var realityScore: Int
+    var confidence: ConfidenceAssessment
+    var breakdown: RealityBreakdown
+    var confidenceProvenance: ConfidenceProvenance
+    var realityColor: Color
+    var confidenceColor: Color
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 10)], spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
+                provenanceHeader(
+                    title: "Reality",
+                    subtitle: "Project state",
+                    value: "\(realityScore)%",
+                    color: realityColor
+                )
+                provenanceRow(symbol: "equal.circle", label: "Baseline posture", value: "\(breakdown.baseline)", color: .blue)
+                provenanceRow(symbol: "arrow.up.circle", label: "Evidence and coverage lift", value: "+\(positiveTotal)", color: .green)
+                provenanceRow(symbol: "arrow.down.circle", label: "Risk and uncertainty pressure", value: "\(negativeTotal)", color: negativeTotal == 0 ? .gray : .red)
+                provenanceRow(symbol: "checkmark.shield", label: "Engine final", value: "\(breakdown.finalScore)%", color: realityColor)
+                if let top = topRealityContribution {
+                    provenanceFootnote("Top pressure: \(top.label) (\(signed(top.delta)))", color: top.delta >= 0 ? .green : .red)
+                } else {
+                    provenanceFootnote("No itemized score contributors recorded yet.", color: .secondary)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(realityColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 8) {
+                provenanceHeader(
+                    title: "Confidence",
+                    subtitle: "Quality of proof",
+                    value: "\(confidence.score)%",
+                    color: confidenceColor
+                )
+                provenanceRow(symbol: "tag", label: "Trust label", value: confidence.label, color: confidenceColor)
+                provenanceRow(symbol: "doc.text.magnifyingglass", label: "Evidence records counted", value: "\(evidenceCount)", color: evidenceCount == 0 ? .orange : .green)
+                if confidenceProvenance.items.isEmpty {
+                    provenanceRow(symbol: "questionmark.circle", label: "Evidence mix", value: "No records", color: .orange)
+                } else {
+                    ForEach(Array(confidenceProvenance.items.prefix(3))) { item in
+                        provenanceRow(
+                            symbol: item.source.symbolName,
+                            label: item.source.rawValue,
+                            value: "\(item.count)",
+                            color: sourceColor(item.source)
+                        )
+                    }
+                    if confidenceProvenance.items.count > 3 {
+                        provenanceRow(
+                            symbol: "ellipsis.circle",
+                            label: "Other evidence classes",
+                            value: "+\(confidenceProvenance.items.count - 3)",
+                            color: .secondary
+                        )
+                    }
+                }
+                if let top = topConfidenceContribution {
+                    provenanceFootnote("Top driver: \(top.label) (\(signed(top.delta)))", color: top.delta >= 0 ? .green : .red)
+                } else {
+                    provenanceFootnote("Confidence is waiting for evidence and verification inputs.", color: .secondary)
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .background(confidenceColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private var positiveTotal: Int {
+        breakdown.positives.reduce(0) { $0 + $1.delta }
+    }
+
+    private var negativeTotal: Int {
+        breakdown.negatives.reduce(0) { $0 + $1.delta }
+    }
+
+    private var evidenceCount: Int {
+        confidenceProvenance.items.reduce(0) { $0 + $1.count }
+    }
+
+    private var topRealityContribution: RealityContribution? {
+        breakdown.contributions.max { abs($0.delta) < abs($1.delta) }
+    }
+
+    private var topConfidenceContribution: RealityContribution? {
+        confidence.contributions.max { abs($0.delta) < abs($1.delta) }
+    }
+
+    private func signed(_ value: Int) -> String {
+        value > 0 ? "+\(value)" : "\(value)"
+    }
+
+    private func sourceColor(_ source: ConfidenceSource) -> Color {
+        switch source {
+        case .verified, .measured, .observed:
+            .green
+        case .inferred:
+            .blue
+        case .unknown:
+            .red
+        }
+    }
+
+    private func provenanceHeader(title: String, subtitle: String, value: String, color: Color) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(size: 18, weight: .bold).monospacedDigit())
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+    }
+
+    private func provenanceRow(symbol: String, label: String, value: String, color: Color) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 16)
+            Text(label)
+                .font(.system(size: 12))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func provenanceFootnote(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(color)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 1)
     }
 }
 
