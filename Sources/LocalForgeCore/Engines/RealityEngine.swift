@@ -226,7 +226,12 @@ public struct RealityEngine: Sendable {
         // A Critical verified-fresh record contributes 4 × 1.0 = 4 weight.
         // A Low verified-stale record contributes 1 × 0.25 = 0.25 weight.
         // Failed-Critical subtracts heavily; Failed-Low barely moves the needle.
-        let priorities = Dictionary(uniqueKeysWithValues: applicability.map { ($0.area, $0.priority) })
+        let priorities = Dictionary(uniqueKeysWithValues: applicability.map { (verificationAreaKey($0.area), $0.priority) })
+        let inScopeAreaKeys = Set(
+            applicability
+                .filter { $0.status.inScope }
+                .map { verificationAreaKey($0.area) }
+        )
         let totalWeight = applicability
             .filter { $0.status.inScope }
             .reduce(0.0) { $0 + $1.priority.weight }
@@ -235,24 +240,32 @@ public struct RealityEngine: Sendable {
         let backedAreas = Set(
             evidenceRecords
                 .filter { strongClassifications.contains($0.classification) }
-                .map { $0.area }
+                .map { verificationAreaKey($0.area) }
+        )
+        let scoredVerification = effectiveVerificationRecords(
+            from: verification,
+            scopedTo: totalWeight > 0 ? inScopeAreaKeys : nil
+        )
+        let effectiveVerificationByArea = Dictionary(
+            uniqueKeysWithValues: scoredVerification.map { (verificationAreaKey($0.area), $0) }
         )
 
         var earned = 0.0
         var penalty = 0.0
-        for record in verification {
-            let priority = priorities[record.area] ?? .medium
+        for record in scoredVerification {
+            let areaKey = verificationAreaKey(record.area)
+            let priority = priorities[areaKey] ?? .medium
             let weight = priority.weight
             switch record.state {
             case .verified:
                 // Backed-by-evidence keeps trust at 1.0 even if the record itself has aged.
-                let trust = backedAreas.contains(record.area) ? max(record.age.trust, 0.85) : record.age.trust
+                let trust = backedAreas.contains(areaKey) ? max(record.age.trust, 0.85) : record.age.trust
                 earned += weight * trust
             case .inProgress:
                 earned += weight * 0.25 // partial credit while in-flight
             case .failed:
                 // Failures with documented evidence still bite, but a tiny credit for honesty.
-                penalty += weight * (backedAreas.contains(record.area) ? 1.1 : 1.25)
+                penalty += weight * (backedAreas.contains(areaKey) ? 1.1 : 1.25)
             case .unknown:
                 break
             }
@@ -299,12 +312,75 @@ public struct RealityEngine: Sendable {
         let allCriticalCovered = applicability
             .filter { $0.priority == .critical && $0.status.inScope }
             .allSatisfy { area in
-                verification.first { $0.area == area.area }?.state == .verified
-                    && verification.first { $0.area == area.area }?.age == .fresh
+                let record = effectiveVerificationByArea[verificationAreaKey(area.area)]
+                return record?.state == .verified && record?.age == .fresh
             }
-        let fullyVerified = counts.total > 0 && counts.verified >= counts.total && counts.failed == 0 && allCriticalCovered
-        let ceiling = fullyVerified ? 100 : 96
+        let allInScopeVerified = !inScopeAreaKeys.isEmpty && inScopeAreaKeys.allSatisfy {
+            effectiveVerificationByArea[$0]?.state == .verified
+        }
+        let hasCriticalFailure = scoredVerification.contains { record in
+            record.state == .failed && priorities[verificationAreaKey(record.area)] == .critical
+        }
+        let hasUnbackedStaleCritical = scoredVerification.contains { record in
+            let areaKey = verificationAreaKey(record.area)
+            guard record.state == .verified, priorities[areaKey] == .critical, !backedAreas.contains(areaKey) else {
+                return false
+            }
+            return record.age == .stale || record.age == .expired || record.age == .never
+        }
+        let fullyVerified = allInScopeVerified && !scoredVerification.contains { $0.state == .failed } && allCriticalCovered
+        var ceiling = fullyVerified ? 100 : 96
+        if hasUnbackedStaleCritical { ceiling = min(ceiling, 88) }
+        if openCritical > 0 { ceiling = min(ceiling, 82) }
+        if activeAssumptions >= 3 { ceiling = min(ceiling, 88) }
+        if hasCriticalFailure { ceiling = min(ceiling, 72) }
         return max(5, min(ceiling, score))
+    }
+
+    private func effectiveVerificationRecords(
+        from verification: [VerificationRecord],
+        scopedTo areaKeys: Set<String>?
+    ) -> [VerificationRecord] {
+        var grouped: [String: [VerificationRecord]] = [:]
+        for record in verification {
+            let key = verificationAreaKey(record.area)
+            guard !key.isEmpty else { continue }
+            if let areaKeys, !areaKeys.contains(key) { continue }
+            grouped[key, default: []].append(record)
+        }
+
+        return grouped.compactMap { _, records in
+            effectiveVerificationRecord(from: records)
+        }
+        .sorted { verificationAreaKey($0.area) < verificationAreaKey($1.area) }
+    }
+
+    private func effectiveVerificationRecord(from records: [VerificationRecord]) -> VerificationRecord? {
+        let failures = records.filter { $0.state == .failed }
+        if !failures.isEmpty {
+            return failures.max(by: verificationRecordSort)
+        }
+        return records.max(by: verificationRecordSort)
+    }
+
+    private func verificationRecordSort(_ lhs: VerificationRecord, _ rhs: VerificationRecord) -> Bool {
+        if lhs.updatedAt != rhs.updatedAt {
+            return lhs.updatedAt < rhs.updatedAt
+        }
+        return verificationStateRiskRank(lhs.state) < verificationStateRiskRank(rhs.state)
+    }
+
+    private func verificationStateRiskRank(_ state: VerificationState) -> Int {
+        switch state {
+        case .verified: 0
+        case .inProgress: 1
+        case .unknown: 2
+        case .failed: 3
+        }
+    }
+
+    private func verificationAreaKey(_ area: String) -> String {
+        area.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func describeState(identity: ProjectIdentity, git: GitStatus, mission: MissionProfile) -> String {
