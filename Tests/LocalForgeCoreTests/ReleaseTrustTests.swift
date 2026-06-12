@@ -23,7 +23,7 @@ struct ReleaseTrustTests {
         #expect(ReleaseReadinessEngine.finalStatus(for: board) == .blocked)
 
         snapshot.verification = [VerificationRecord(area: "Build", state: .verified)]
-        let recovered = ReleaseReadinessEngine().board(for: snapshot)
+        let recovered = ReleaseReadinessEngine().board(for: snapshot, evidence: [strongEvidence(area: "Build")])
         #expect(recovered.status == .ready)
     }
 
@@ -39,7 +39,7 @@ struct ReleaseTrustTests {
             ]
         )
 
-        let board = ReleaseReadinessEngine().board(for: snapshot)
+        let board = ReleaseReadinessEngine().board(for: snapshot, evidence: [strongEvidence(area: "Signing")])
 
         #expect(board.status == .notReady)
         #expect(board.criticalRemaining == 1)
@@ -59,11 +59,11 @@ struct ReleaseTrustTests {
             ]
         )
 
-        let board = ReleaseReadinessEngine().board(for: snapshot)
+        let board = ReleaseReadinessEngine().board(for: snapshot, evidence: [strongEvidence(area: "AU Validation")])
         let auRow = board.rows.first { $0.area == "AU Validation" }
 
         #expect(board.status == .blocked)
-        #expect(board.blockers == ["AU Validation"])
+        #expect(board.blockers == ["Preset System"])
         #expect(board.criticalRemaining == 1)
         #expect(auRow?.blockedBy == ["Preset System (Failed)"])
         #expect(board.caveats.contains("AU Validation blocked by Preset System (Failed)."))
@@ -84,7 +84,7 @@ struct ReleaseTrustTests {
             RiskRecord(title: "Docs typo", likelihood: .low, impact: .low, status: .open)
         ]
 
-        let board = ReleaseReadinessEngine().board(for: snapshot, risks: risks)
+        let board = ReleaseReadinessEngine().board(for: snapshot, evidence: [strongEvidence(area: "Build")], risks: risks)
 
         #expect(board.status == .blocked)
         #expect(board.blockers.isEmpty)
@@ -106,12 +106,35 @@ struct ReleaseTrustTests {
             ]
         )
 
-        let board = ReleaseReadinessEngine().board(for: snapshot)
+        let board = ReleaseReadinessEngine().board(for: snapshot, evidence: [strongEvidence(area: "Build")])
 
         #expect(board.status == .readyWithCaveats)
         #expect(board.criticalRemaining == 0)
         #expect(board.highRemaining == 0)
         #expect(board.caveats == ["Accessibility Notes is Unknown."])
+    }
+
+    @Test("verified critical gate without strong evidence is not ready")
+    func verifiedCriticalGateWithoutStrongEvidenceIsNotReady() {
+        let snapshot = releaseSnapshot(
+            applicability: [
+                ApplicabilityItem(area: "Build", status: .required, priority: .critical)
+            ],
+            verification: [
+                VerificationRecord(area: "Build", state: .verified)
+            ]
+        )
+
+        let board = ReleaseReadinessEngine().board(for: snapshot, evidence: [
+            strongEvidence(area: "Signing"),
+            weakEvidence(area: "Build")
+        ])
+
+        #expect(board.status == .notReady)
+        #expect(board.criticalRemaining == 1)
+        #expect(board.blockers.isEmpty)
+        #expect(board.caveats == ["Build is verified without strong evidence."])
+        #expect(board.headline.contains("verified, fresh, unblocked evidence"))
     }
 
     private func releaseSnapshot(
@@ -122,5 +145,13 @@ struct ReleaseTrustTests {
         snapshot.applicability = applicability
         snapshot.verification = verification
         return snapshot
+    }
+
+    private func strongEvidence(area: String) -> EvidenceRecord {
+        EvidenceRecord(area: area, summary: "\(area) passed release validation", classification: .measured)
+    }
+
+    private func weakEvidence(area: String) -> EvidenceRecord {
+        EvidenceRecord(area: area, summary: "\(area) expected to pass", classification: .assumed)
     }
 }

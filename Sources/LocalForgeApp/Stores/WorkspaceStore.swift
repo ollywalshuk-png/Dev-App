@@ -113,14 +113,24 @@ final class WorkspaceStore: ObservableObject {
 
     /// Phase 6.5: Release Readiness board for the active project.
     var releaseBoard: ReleaseReadinessBoard? {
-        guard let snapshot = selectedSnapshot else { return nil }
-        return releaseEngine.board(for: snapshot)
+        guard let snapshot = selectedSnapshot, let id = selectedProjectID else { return nil }
+        return releaseEngine.board(
+            for: snapshot,
+            evidence: evidence(for: id),
+            risks: risks(for: id)
+        )
     }
 
     /// Phase 6.5: Cross-project insights for the workspace overview.
     var workspaceInsights: WorkspaceInsights {
         let ordered = projects.compactMap { snapshots[$0.id] }
-        return releaseEngine.insights(for: ordered)
+        let evidenceByProjectID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, evidence(for: $0.id)) })
+        let risksByProjectID = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, risks(for: $0.id)) })
+        return releaseEngine.insights(
+            for: ordered,
+            evidenceByProjectID: evidenceByProjectID,
+            risksByProjectID: risksByProjectID
+        )
     }
 
     // MARK: - Phase 7.5 Truth System surface

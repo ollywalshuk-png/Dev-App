@@ -347,6 +347,16 @@ struct TruthStressTests {
         )
         snapshot.applicability = applicability
         snapshot.verification = verification
+        snapshot.evidence = verification
+            .filter { $0.state == .verified }
+            .map {
+                Evidence(
+                    title: "\($0.area) release evidence",
+                    detail: "\($0.area) observed passing in the truth stress fixture",
+                    classification: .observed,
+                    source: "truth stress fixture"
+                )
+            }
         snapshot.reality = reality
         return snapshot
     }
