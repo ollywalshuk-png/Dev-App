@@ -77,6 +77,7 @@ private struct WorkspaceTruthTab: View {
         VStack(alignment: .leading, spacing: 14) {
             if let snapshot = store.selectedSnapshot {
                 truthScorePanel(snapshot: snapshot)
+                truthDebtGatePanel(snapshot: snapshot)
                 evidenceInspectionPanel(snapshot: snapshot)
                 stressPanel(snapshot: snapshot)
                 realityBreakdownCard(snapshot: snapshot)
@@ -187,6 +188,91 @@ private struct WorkspaceTruthTab: View {
                 symbol: openBlockers > 0 || summary.failed > 0 ? "exclamationmark.triangle" : "arrow.right.circle",
                 color: openBlockers > 0 || summary.failed > 0 ? .orange : .blue
             )
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func truthDebtGatePanel(snapshot: RepoSnapshot) -> some View {
+        let projectID = store.selectedProjectID
+        let report = TruthDebtEngine().report(
+            snapshot: snapshot,
+            evidence: store.evidence(for: projectID),
+            risks: store.risks(for: projectID),
+            assumptions: store.assumptions(for: projectID)
+        )
+        let topGates = Array(report.gates.prefix(4))
+        let statusColor = truthDebtStatusColor(report.status)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Truth Debt / Release-Claim Gate")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text("Read-only gate check from mission, verification, evidence, risks, assumptions, and contradictions.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                TruthHealthBadge(text: report.status.rawValue, color: statusColor)
+            }
+
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 10)], spacing: 10) {
+                TruthMetric(
+                    label: "Blockers",
+                    value: "\(report.blockers.count)",
+                    detail: "Stop release-ready claims",
+                    symbol: "exclamationmark.octagon",
+                    color: report.blockers.isEmpty ? .gray : .red
+                )
+                TruthMetric(
+                    label: "Caveats",
+                    value: "\(report.caveats.count)",
+                    detail: "Require caveated claims",
+                    symbol: "exclamationmark.triangle",
+                    color: report.caveats.isEmpty ? .gray : .orange
+                )
+                TruthMetric(
+                    label: "Top Gates",
+                    value: "\(topGates.count)",
+                    detail: report.gates.isEmpty ? "No gates detected" : "Sorted by impact",
+                    symbol: "list.bullet.rectangle",
+                    color: report.gates.isEmpty ? .green : .indigo
+                )
+            }
+
+            TruthStatusLine(
+                title: report.headline,
+                detail: truthDebtReleaseClaimDetail(report),
+                symbol: truthDebtStatusSymbol(report.status),
+                color: statusColor
+            )
+
+            if topGates.isEmpty {
+                EmptyTruthPanel(
+                    title: "Release claim is defensible",
+                    message: "The TruthDebtEngine did not find blocker or caveat gates for the selected project's current records.",
+                    symbol: "shield.checkered",
+                    color: .green
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Top Gates")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(topGates) { gate in
+                        TruthDebtGateRow(gate: gate)
+                    }
+                    if report.gates.count > topGates.count {
+                        Text("+ \(report.gates.count - topGates.count) more gate\(report.gates.count - topGates.count == 1 ? "" : "s") in the full report.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -602,6 +688,39 @@ private struct WorkspaceTruthTab: View {
         return "Truth is audit-ready enough to inspect, challenge, and improve."
     }
 
+    private func truthDebtStatusColor(_ status: TruthDebtStatus) -> Color {
+        switch status {
+        case .blocked:
+            .red
+        case .caveated:
+            .orange
+        case .defensible:
+            .green
+        }
+    }
+
+    private func truthDebtStatusSymbol(_ status: TruthDebtStatus) -> String {
+        switch status {
+        case .blocked:
+            "lock.shield"
+        case .caveated:
+            "exclamationmark.shield"
+        case .defensible:
+            "checkmark.shield"
+        }
+    }
+
+    private func truthDebtReleaseClaimDetail(_ report: TruthDebtReport) -> String {
+        switch report.status {
+        case .blocked:
+            "Release-ready claims are blocked until the listed Critical/High gates are resolved."
+        case .caveated:
+            "No blocker is present, but release claims should carry the listed caveats."
+        case .defensible:
+            "No Truth Debt gate currently prevents a defensible release-ready claim."
+        }
+    }
+
     private func stressBadgeText(blockers: Int, failed: Int, unknown: Int, noEvidence: Bool) -> String {
         if blockers > 0 || failed > 0 { return "High Pressure" }
         if noEvidence || unknown > 0 { return "Needs Proof" }
@@ -710,6 +829,66 @@ private struct WorkspaceTruthTab: View {
         let values = Array(items)
         guard !values.isEmpty else { return "- \(empty)" }
         return values.map { "- \($0)" }.joined(separator: "\n")
+    }
+}
+
+private struct TruthDebtGateRow: View {
+    var gate: TruthDebtGate
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: gate.blocksReleaseClaim ? "lock.shield" : "exclamationmark.shield")
+                .foregroundStyle(severityColor)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 7) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 6, alignment: .leading)], alignment: .leading, spacing: 6) {
+                    TruthDebtTag(text: gate.severity.rawValue, color: severityColor)
+                    TruthDebtTag(text: gate.kind.rawValue, color: severityColor)
+                    TruthDebtTag(text: gate.area.isEmpty ? "Workspace" : gate.area, color: .blue)
+                }
+                Text(gate.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Action: \(gate.recommendedAction)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(severityColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var severityColor: Color {
+        switch gate.severity {
+        case .critical:
+            .red
+        case .high:
+            .orange
+        case .medium:
+            .blue
+        case .low:
+            .gray
+        }
+    }
+}
+
+private struct TruthDebtTag: View {
+    var text: String
+    var color: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.16), in: Capsule())
+            .foregroundStyle(color)
     }
 }
 
