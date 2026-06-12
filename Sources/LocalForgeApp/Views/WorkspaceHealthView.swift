@@ -17,6 +17,7 @@ struct WorkspaceHealthView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     header
+                    trustScanOverview
                     categoryPicker
                     issuesList
                 }
@@ -32,6 +33,18 @@ struct WorkspaceHealthView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Workspace Health")
                 .font(.system(size: 28, weight: .bold))
+            if !report.isEmpty {
+                HStack(spacing: 6) {
+                    Label("\(affectedProjectCount(report.issues)) projects affected", systemImage: "folder.badge.gearshape")
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+                    if let leadingCategory {
+                        Text("Top area: \(leadingCategory.rawValue)")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
             HStack(spacing: 12) {
                 if report.criticalCount > 0 {
                     healthBadge("\(report.criticalCount) Critical", color: .red)
@@ -65,6 +78,35 @@ struct WorkspaceHealthView: View {
             .background(color.opacity(0.15))
             .foregroundStyle(color)
             .clipShape(Capsule())
+    }
+
+    private var trustScanOverview: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 158), spacing: 8)], spacing: 8) {
+            ForEach(HealthIssueCategory.allCases, id: \.self) { category in
+                let issues = report.issues(for: category)
+                Button {
+                    selectedCategory = selectedCategory == category ? nil : category
+                } label: {
+                    WorkspaceHealthCategorySummary(
+                        category: category,
+                        issueCount: issues.count,
+                        projectCount: affectedProjectCount(issues),
+                        criticalCount: issues.filter { $0.severity == .critical }.count,
+                        highCount: issues.filter { $0.severity == .high }.count,
+                        isSelected: selectedCategory == category
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var leadingCategory: HealthIssueCategory? {
+        HealthIssueCategory.allCases
+            .map { category in (category: category, count: report.issues(for: category).count) }
+            .filter { $0.count > 0 }
+            .max { $0.count < $1.count }?
+            .category
     }
 
     // MARK: - Category picker
@@ -111,19 +153,33 @@ struct WorkspaceHealthView: View {
 
     private var visibleIssues: [WorkspaceHealthIssue] {
         if let cat = selectedCategory {
-            return report.issues(for: cat)
+            return sortedIssues(report.issues(for: cat))
         }
-        return report.issues
+        return sortedIssues(report.issues)
+    }
+
+    private var visibleIssueGroups: [WorkspaceHealthIssueGroup] {
+        HealthIssueCategory.allCases.compactMap { category in
+            let issues = sortedIssues(report.issues(for: category))
+            guard !issues.isEmpty else { return nil }
+            return WorkspaceHealthIssueGroup(category: category, issues: issues)
+        }
     }
 
     private var issuesList: some View {
         Group {
             if visibleIssues.isEmpty {
                 ContentUnavailableView(
-                    "No issues in this category",
+                    selectedCategory == nil ? "No workspace health issues" : "No issues in this category",
                     systemImage: "checkmark.circle",
-                    description: Text("Everything looks healthy here.")
+                    description: Text(selectedCategory == nil ? "Truth, evidence, registers, assumptions, architecture, and dependencies are clear." : "Everything looks healthy here.")
                 )
+            } else if selectedCategory == nil {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    ForEach(visibleIssueGroups) { group in
+                        WorkspaceHealthIssueSection(category: group.category, issues: group.issues)
+                    }
+                }
             } else {
                 LazyVStack(spacing: 8) {
                     ForEach(visibleIssues) { issue in
@@ -136,6 +192,151 @@ struct WorkspaceHealthView: View {
 
     private func refresh() {
         report = store.workspaceHealthReport
+    }
+
+    private func sortedIssues(_ issues: [WorkspaceHealthIssue]) -> [WorkspaceHealthIssue] {
+        issues.sorted { lhs, rhs in
+            if lhs.severity.sortRank != rhs.severity.sortRank {
+                return lhs.severity.sortRank < rhs.severity.sortRank
+            }
+            if lhs.category.rawValue != rhs.category.rawValue {
+                return lhs.category.rawValue < rhs.category.rawValue
+            }
+            return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending
+        }
+    }
+
+    private func affectedProjectCount(_ issues: [WorkspaceHealthIssue]) -> Int {
+        Set(issues.map(\.projectID)).count
+    }
+}
+
+private struct WorkspaceHealthIssueGroup: Identifiable {
+    var category: HealthIssueCategory
+    var issues: [WorkspaceHealthIssue]
+
+    var id: HealthIssueCategory { category }
+}
+
+private struct WorkspaceHealthCategorySummary: View {
+    var category: HealthIssueCategory
+    var issueCount: Int
+    var projectCount: Int
+    var criticalCount: Int
+    var highCount: Int
+    var isSelected: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Image(systemName: category.symbolName)
+                    .foregroundStyle(category.tint)
+                    .frame(width: 16)
+                Text(category.rawValue)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.78)
+            }
+            Text(category.scanCue)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.82)
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Text("\(issueCount)")
+                    .font(.system(size: 24, weight: .bold).monospacedDigit())
+                    .foregroundStyle(issueCount == 0 ? Color.green : category.tint)
+                    .lineLimit(1)
+                Text(issueCount == 1 ? "issue" : "issues")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 4) {
+                if criticalCount > 0 {
+                    severityMiniBadge("C", count: criticalCount, color: .red)
+                }
+                if highCount > 0 {
+                    severityMiniBadge("H", count: highCount, color: .orange)
+                }
+                if issueCount == 0 {
+                    Text("Clear")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.green)
+                } else {
+                    Text("\(projectCount) \(projectCount == 1 ? "project" : "projects")")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
+        .background(
+            isSelected ? category.tint.opacity(0.16) : Color(nsColor: .controlBackgroundColor),
+            in: RoundedRectangle(cornerRadius: 8)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(isSelected ? category.tint.opacity(0.65) : Color.secondary.opacity(0.18), lineWidth: 1)
+        )
+    }
+
+    private func severityMiniBadge(_ label: String, count: Int, color: Color) -> some View {
+        Text("\(label) \(count)")
+            .font(.caption2.weight(.bold))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.14), in: Capsule())
+            .foregroundStyle(color)
+    }
+}
+
+private struct WorkspaceHealthIssueSection: View {
+    var category: HealthIssueCategory
+    var issues: [WorkspaceHealthIssue]
+
+    private var criticalCount: Int { issues.filter { $0.severity == .critical }.count }
+    private var highCount: Int { issues.filter { $0.severity == .high }.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: category.symbolName)
+                    .foregroundStyle(category.tint)
+                    .frame(width: 18)
+                Text(category.rawValue.uppercased())
+                    .font(.caption.weight(.bold))
+                    .tracking(0.8)
+                    .foregroundStyle(category.tint)
+                Text(category.scanCue)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.82)
+                Spacer(minLength: 8)
+                Text("\(issues.count)")
+                    .font(.caption.weight(.bold).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if criticalCount > 0 {
+                    sectionBadge("\(criticalCount) critical", color: .red)
+                }
+                if highCount > 0 {
+                    sectionBadge("\(highCount) high", color: .orange)
+                }
+            }
+            ForEach(issues) { issue in
+                WorkspaceHealthIssueRow(issue: issue)
+            }
+        }
+    }
+
+    private func sectionBadge(_ label: String, color: Color) -> some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.13), in: Capsule())
+            .foregroundStyle(color)
     }
 }
 
@@ -150,7 +351,7 @@ private struct WorkspaceHealthIssueRow: View {
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: issue.severity.symbolName)
-                        .foregroundStyle(severityColor(issue.severity))
+                        .foregroundStyle(issue.severity.tint)
                         .frame(width: 18)
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -171,6 +372,13 @@ private struct WorkspaceHealthIssueRow: View {
 
                     Spacer()
 
+                    Text(issue.severity.rawValue.uppercased())
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(issue.severity.tint.opacity(0.13), in: Capsule())
+                        .foregroundStyle(issue.severity.tint)
+
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -184,10 +392,10 @@ private struct WorkspaceHealthIssueRow: View {
                 Divider().padding(.horizontal, 12)
                 VStack(alignment: .leading, spacing: 8) {
                     if !issue.detail.isEmpty {
-                        detailBlock(label: "Detail", text: issue.detail)
+                        detailBlock(label: issue.category.detailLabel, text: issue.detail)
                     }
                     if !issue.recommendation.isEmpty {
-                        detailBlock(label: "Recommendation", text: issue.recommendation)
+                        detailBlock(label: issue.category.recommendationLabel, text: issue.recommendation)
                     }
                 }
                 .padding(12)
@@ -197,7 +405,7 @@ private struct WorkspaceHealthIssueRow: View {
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(severityColor(issue.severity).opacity(0.3), lineWidth: 1)
+                .strokeBorder(issue.severity.tint.opacity(0.3), lineWidth: 1)
         )
     }
 
@@ -212,12 +420,81 @@ private struct WorkspaceHealthIssueRow: View {
         }
     }
 
-    private func severityColor(_ s: HealthIssueSeverity) -> Color {
-        switch s {
+}
+
+private extension HealthIssueSeverity {
+    var tint: Color {
+        switch self {
         case .critical: .red
         case .high: .orange
         case .medium: .yellow
         case .low: .secondary
+        }
+    }
+
+    var sortRank: Int {
+        switch self {
+        case .critical: 0
+        case .high: 1
+        case .medium: 2
+        case .low: 3
+        }
+    }
+}
+
+private extension HealthIssueCategory {
+    var symbolName: String {
+        switch self {
+        case .truthDecay: "checkmark.shield"
+        case .evidenceDecay: "doc.text.magnifyingglass"
+        case .registerDecay: "rectangle.grid.2x2"
+        case .assumptionDecay: "lightbulb"
+        case .architectureDrift: "building.columns"
+        case .dependencyIssues: "point.3.connected.trianglepath.dotted"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .truthDecay: .indigo
+        case .evidenceDecay: .blue
+        case .registerDecay: .teal
+        case .assumptionDecay: .orange
+        case .architectureDrift: .purple
+        case .dependencyIssues: .red
+        }
+    }
+
+    var scanCue: String {
+        switch self {
+        case .truthDecay: "Claim vs ledger"
+        case .evidenceDecay: "Proof freshness"
+        case .registerDecay: "Coverage gaps"
+        case .assumptionDecay: "Unverified assumptions"
+        case .architectureDrift: "Design vs code"
+        case .dependencyIssues: "Blocked dependencies"
+        }
+    }
+
+    var detailLabel: String {
+        switch self {
+        case .truthDecay: "Truth Signal"
+        case .evidenceDecay: "Evidence Gap"
+        case .registerDecay: "Register Gap"
+        case .assumptionDecay: "Assumption Risk"
+        case .architectureDrift: "Drift Signal"
+        case .dependencyIssues: "Dependency Block"
+        }
+    }
+
+    var recommendationLabel: String {
+        switch self {
+        case .truthDecay: "Next Check"
+        case .evidenceDecay: "Evidence Action"
+        case .registerDecay: "Register Action"
+        case .assumptionDecay: "Assumption Action"
+        case .architectureDrift: "Architecture Action"
+        case .dependencyIssues: "Dependency Action"
         }
     }
 }
