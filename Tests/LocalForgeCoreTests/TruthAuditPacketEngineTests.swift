@@ -101,6 +101,9 @@ struct TruthAuditPacketEngineTests {
         #expect(markdown.contains("- Next action: Resolve Runtime and attach evidence."))
         #expect(markdown.contains("- Score: \(confidence.score)% (\(confidence.label))"))
         #expect(markdown.contains("- Summary: \(confidence.summary)"))
+        #expect(markdown.contains("## Confidence Warnings"))
+        #expect(markdown.contains("- Weak confidence: \(confidence.score)% (\(confidence.label)) - \(confidence.summary) Drivers: 1 active assumption(s) (-4)"))
+        #expect(markdown.contains("- Assumptions: 1 active assumption gate(s); 1 block release claims. Top: Runtime mode remains enabled"))
         #expect(markdown.contains("- Coverage: Evidence 33%, Risks 33%, Decisions 33%, Architecture 33%, Assumptions 50%"))
         #expect(markdown.contains("## Positive Provenance"))
         #expect(markdown.contains("| Verification 11111111 | Build | Verified | Fresh | Yes |"))
@@ -197,6 +200,40 @@ struct TruthAuditPacketEngineTests {
         #expect(forward.contains("| Risk FFFFFFFF | Gamma | Open | - | Yes |"))
     }
 
+    @Test("packet warnings surface contradictions and stale evidence")
+    func packetWarningsSurfaceContradictionsAndStaleEvidence() {
+        let verification = VerificationRecord(
+            id: UUID(uuidString: "13131313-1313-1313-1313-131313131313")!,
+            area: "Build",
+            state: .verified,
+            updatedAt: expiredDate
+        )
+        let pass = EvidenceRecord(
+            id: UUID(uuidString: "14141414-1414-1414-1414-141414141414")!,
+            area: " build ",
+            summary: "Build passes locally",
+            classification: .observed
+        )
+        let fail = EvidenceRecord(
+            id: UUID(uuidString: "15151515-1515-1515-1515-151515151515")!,
+            area: "BUILD",
+            summary: "Archive fails reproducibly",
+            classification: .measured
+        )
+        let markdown = TruthAuditPacketEngine().markdownPacket(
+            for: snapshot(
+                applicability: [ApplicabilityItem(area: "Build", status: .required, priority: .critical)],
+                verification: [verification]
+            ),
+            evidence: [pass, fail]
+        )
+
+        #expect(markdown.contains("## Confidence Warnings"))
+        #expect(markdown.contains("- Contradictions: 1 contradictory evidence gate(s). Top: Contradictory evidence for build"))
+        #expect(markdown.contains("- Stale evidence: 1 stale/expired verification gate(s). Top: Build verification is expired"))
+        #expect(!markdown.contains("- None"))
+    }
+
     @Test("packet redacts arbitrary text and paths")
     func packetRedactsArbitraryTextAndPaths() {
         let privateArea = "/Users/example/private/runtime.txt"
@@ -275,3 +312,4 @@ struct TruthAuditPacketEngineTests {
 }
 
 private let freshDate = Date(timeIntervalSince1970: 4_102_444_800)
+private let expiredDate = Date(timeIntervalSince1970: 0)
