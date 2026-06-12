@@ -15,6 +15,7 @@ public struct WorkspaceDoctorEngine: Sendable {
             issues += orphans(record: record, pid: pid, pname: pname)
             issues += duplicates(record: record, pid: pid, pname: pname)
             issues += trustIntegrity(record: record, pid: pid, pname: pname)
+            issues += truthDebt(record: record, pid: pid, pname: pname)
             issues += invalidDates(record: record, pid: pid, pname: pname)
         }
 
@@ -284,6 +285,88 @@ public struct WorkspaceDoctorEngine: Sendable {
         return issues
     }
 
+    // MARK: - Truth debt
+
+    private func truthDebt(record: PersistedProjectRecord, pid: UUID, pname: String) -> [WorkspaceDoctorIssue] {
+        var issues: [WorkspaceDoctorIssue] = []
+        let evidence = record.evidence ?? []
+        let verification = record.verification ?? []
+        let risks = record.risks ?? []
+        let assumptions = record.assumptions ?? []
+
+        let releaseBlockingRisks = risks.filter(\.isReleaseBlocking)
+        let highImpactRisks = risks.filter(isActiveHighImpactRisk)
+        let releaseBlockingRiskIDs = Set(releaseBlockingRisks.map(\.id))
+        let highImpactRiskIDs = Set(highImpactRisks.map(\.id))
+        let highOrReleaseRiskIDs = releaseBlockingRiskIDs.union(highImpactRiskIDs)
+        let releaseBlockingAreaKeys = Set(releaseBlockingRisks.flatMap(\.linkedVerificationAreas).map(normalizedArea).filter { !$0.isEmpty })
+        let highImpactAreaKeys = Set(highImpactRisks.flatMap(\.linkedVerificationAreas).map(normalizedArea).filter { !$0.isEmpty })
+        let highOrReleaseAreaKeys = releaseBlockingAreaKeys.union(highImpactAreaKeys)
+
+        let staleHighPriorityVerified = verification.filter { v in
+            guard v.state == .verified else { return false }
+            guard highOrReleaseAreaKeys.contains(normalizedArea(v.area)) else { return false }
+            let age = VerificationAge.from(v.updatedAt)
+            guard age == .stale || age == .expired else { return false }
+            return !hasStrongEvidence(for: v, in: evidence)
+        }
+        if !staleHighPriorityVerified.isEmpty {
+            issues.append(.init(
+                kind: .missingReference,
+                severity: staleHighPriorityVerified.contains { VerificationAge.from($0.updatedAt) == .expired } ? .critical : .high,
+                projectID: pid,
+                projectName: pname,
+                title: "\(staleHighPriorityVerified.count) release-relevant verified area(s) have stale truth without strong evidence",
+                impact: "Critical or high-impact risk areas remain marked Verified after trust decay, but no observed, measured, or verified evidence backs the current claim.",
+                recommendation: "Refresh the verification with strong evidence, or move the area out of Verified until it is re-checked."
+            ))
+        }
+
+        let verificationIDsByArea = Dictionary(grouping: verification, by: { normalizedArea($0.area) })
+            .mapValues { Set($0.map(\.id)) }
+        let highOrReleaseVerificationIDs = highOrReleaseAreaKeys.reduce(into: Set<UUID>()) { ids, areaKey in
+            ids.formUnion(verificationIDsByArea[areaKey] ?? [])
+        }
+        let activeReleaseRelevantAssumptions = assumptions.filter { assumption in
+            guard assumption.status == .active else { return false }
+            let linkedAreaKey = normalizedArea(assumption.linkedVerificationArea)
+            return (!linkedAreaKey.isEmpty && highOrReleaseAreaKeys.contains(linkedAreaKey))
+                || assumption.linkedRiskIDs.contains { highOrReleaseRiskIDs.contains($0) }
+                || assumption.linkedVerificationIDs.contains { highOrReleaseVerificationIDs.contains($0) }
+        }
+        if !activeReleaseRelevantAssumptions.isEmpty {
+            issues.append(.init(
+                kind: .missingReference,
+                severity: activeReleaseRelevantAssumptions.contains { assumption in
+                    assumption.linkedRiskIDs.contains { releaseBlockingRiskIDs.contains($0) }
+                        || releaseBlockingAreaKeys.contains(normalizedArea(assumption.linkedVerificationArea))
+                } ? .high : .medium,
+                projectID: pid,
+                projectName: pname,
+                title: "\(activeReleaseRelevantAssumptions.count) active assumption(s) are linked to release-relevant risk areas",
+                impact: "The release-ready claim depends on unresolved assumptions tied to critical/high risk areas or release-blocking risks.",
+                recommendation: "Convert each assumption into evidence, verify or disprove it, or remove the risk/area link if it no longer applies."
+            ))
+        }
+
+        let releaseBlockingRisksWithGaps = releaseBlockingRisks.filter { risk in
+            lacksMitigationAndContingency(risk) || !hasVerificationOrEvidenceSupport(risk, verification: verification, evidence: evidence)
+        }
+        if !releaseBlockingRisksWithGaps.isEmpty {
+            issues.append(.init(
+                kind: .orphanRisk,
+                severity: releaseBlockingRisksWithGaps.contains { $0.impact == .critical } ? .critical : .high,
+                projectID: pid,
+                projectName: pname,
+                title: "\(releaseBlockingRisksWithGaps.count) release-blocking open risk(s) lack mitigation or verification support",
+                impact: "Open release-blocking risks need an explicit mitigation or contingency and a verification/evidence link before a release-ready claim is defensible.",
+                recommendation: "Add a mitigation or contingency, link verification/evidence, or close the risk when it no longer blocks release."
+            ))
+        }
+
+        return issues
+    }
+
     // MARK: - Invalid dates
 
     private func invalidDates(record: PersistedProjectRecord, pid: UUID, pname: String) -> [WorkspaceDoctorIssue] {
@@ -333,6 +416,24 @@ public struct WorkspaceDoctorEngine: Sendable {
         }
     }
 
+    private func hasStrongEvidence(for verification: VerificationRecord, in evidence: [EvidenceRecord]) -> Bool {
+        let area = normalizedArea(verification.area)
+        return evidence.contains { e in
+            isStrongEvidence(e)
+                && (
+                    normalizedArea(e.area) == area
+                        || e.linkedVerificationIDs.contains(verification.id)
+                        || e.linkedID == verification.id
+                )
+        }
+    }
+
+    private func isStrongEvidence(_ evidence: EvidenceRecord) -> Bool {
+        evidence.classification == .observed
+            || evidence.classification == .measured
+            || evidence.classification == .verified
+    }
+
     private func isActiveHighImpactRisk(_ risk: RiskRecord) -> Bool {
         (risk.status == .open || risk.status == .monitoring)
             && (risk.impact == .high || risk.impact == .critical)
@@ -344,6 +445,20 @@ public struct WorkspaceDoctorEngine: Sendable {
             || !risk.linkedVerificationIDs.isEmpty
             || !risk.linkedDecisionIDs.isEmpty
             || !risk.linkedArchitectureIDs.isEmpty
+    }
+
+    private func lacksMitigationAndContingency(_ risk: RiskRecord) -> Bool {
+        isBlank(risk.mitigation) && isBlank(risk.contingency)
+    }
+
+    private func hasVerificationOrEvidenceSupport(_ risk: RiskRecord, verification: [VerificationRecord], evidence: [EvidenceRecord]) -> Bool {
+        let verificationIDs = Set(verification.map(\.id))
+        let verificationAreaKeys = Set(verification.map { normalizedArea($0.area) })
+        let evidenceIDs = Set(evidence.map(\.id))
+
+        return risk.linkedVerificationIDs.contains { verificationIDs.contains($0) }
+            || risk.linkedVerificationAreas.contains { verificationAreaKeys.contains(normalizedArea($0)) }
+            || risk.linkedEvidenceIDs.contains { evidenceIDs.contains($0) }
     }
 
     private func duplicateVerificationGroups(in verification: [VerificationRecord]) -> [[VerificationRecord]] {
