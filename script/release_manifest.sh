@@ -58,6 +58,19 @@ git_field() {
   fi
 }
 
+redact_manifest_value() {
+  local value="$1"
+  printf "%s\n" "$value" \
+    | sed -E 's#([A-Za-z][A-Za-z0-9+.-]*://)[^/@[:space:]]+@#\1[REDACTED_CREDENTIAL]@#g'
+}
+
+git_remote_field() {
+  local name="$1"
+  local value
+  value="$(git_field remote get-url "$name")"
+  redact_manifest_value "$value"
+}
+
 git_dirty_state() {
   local status
   status="$(git -C "$ROOT_DIR" status --porcelain 2>/dev/null || true)"
@@ -125,8 +138,9 @@ print_manifest() {
   printf "git_commit: %s\n" "$(git_field rev-parse --verify HEAD)"
   printf "git_branch: %s\n" "$(git_field branch --show-current)"
   printf "git_dirty: %s\n" "$(git_dirty_state)"
-  printf "origin_remote: %s\n" "$(git_field remote get-url origin)"
-  printf "upstream_remote: %s\n" "$(git_field remote get-url upstream)"
+  printf "origin_remote: %s\n" "$(git_remote_field origin)"
+  printf "upstream_remote: %s\n" "$(git_remote_field upstream)"
+  printf "remote_credential_redaction: enabled for URL userinfo\n"
   printf "app_path: %s\n" "$app_path"
 
   if [[ -d "$app_path" ]]; then
