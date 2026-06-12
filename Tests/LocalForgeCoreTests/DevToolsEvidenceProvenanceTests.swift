@@ -4,7 +4,7 @@ import Testing
 
 @Suite("Dev Tools evidence provenance")
 struct DevToolsEvidenceProvenanceTests {
-    @Test("swift test failure creates measured evidence plus linked build and test records")
+    @Test("swift test failure creates diagnostic evidence plus linked build and test records")
     func swiftTestFailureCreatesReleaseRelevantRecords() throws {
         let started = Date(timeIntervalSince1970: 1_717_000_000)
         let ended = started.addingTimeInterval(12)
@@ -29,7 +29,7 @@ struct DevToolsEvidenceProvenanceTests {
         #expect(records.evidence.area == "Tests")
         #expect(records.evidence.kind == .logExcerpt)
         #expect(records.evidence.summary == "Swift Test: Failure")
-        #expect(records.evidence.classification == .measured)
+        #expect(records.evidence.classification == .unknown)
         #expect(records.evidence.author == "Dev Tools")
         #expect(records.evidence.createdAt == ended)
 
@@ -54,7 +54,7 @@ struct DevToolsEvidenceProvenanceTests {
         assertRedacted(test.notes)
     }
 
-    @Test("codesign failure creates release-relevant evidence without build or test records")
+    @Test("codesign failure creates diagnostic evidence without build or test records")
     func codesignFailureCreatesEvidenceOnly() throws {
         let command = try preset(.codesignVerify)
         let result = DevToolsCommandResult(
@@ -74,7 +74,7 @@ struct DevToolsEvidenceProvenanceTests {
         #expect(records.evidence.area == "Signing")
         #expect(records.evidence.kind == .logExcerpt)
         #expect(records.evidence.summary == "Codesign Verify: Failure")
-        #expect(records.evidence.classification == .measured)
+        #expect(records.evidence.classification == .unknown)
         #expect(records.evidence.body.contains("code object is not signed"))
         #expect(records.build == nil)
         #expect(records.test == nil)

@@ -289,7 +289,7 @@ public struct DevCommandEngine: Sendable {
         case .success:
             .observed
         case .failure, .timeout:
-            .measured
+            .unknown
         case .blocked:
             .unknown
         }
