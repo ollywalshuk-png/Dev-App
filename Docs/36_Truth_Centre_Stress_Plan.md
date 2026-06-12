@@ -93,3 +93,10 @@ outcomes:
 
 Do not hide the issue behind a friendlier label. Truth Centre should earn trust
 by being willing to say that the project is not proven yet.
+
+## Implemented Coverage Note
+
+- 2026-06-12: `TruthScaleStressTests` now covers a deterministic 1,200-project
+  workspace with 12,000 verification/evidence records, exact aggregate truth
+  counts, repeated scoring determinism, related-record resolution, and a
+  generous 10-second in-memory upper bound for the scale pass.
