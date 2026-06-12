@@ -103,10 +103,11 @@ struct LocalForgeCLI {
         var lines = [
             "LocalForge Trust Scan",
             "Project: \(snapshot.project.name)",
-            "Type: \(snapshot.identity.kind.rawValue) [\(snapshot.identity.confidence.rawValue)]",
-            "Mission: \(snapshot.mission.statedMission) [\(snapshot.mission.confidence.rawValue)]",
+            "Type: \(snapshot.identity.kind.rawValue) (classification confidence: \(snapshot.identity.confidence.rawValue))",
+            "Mission: \(snapshot.mission.statedMission) (mission confidence: \(snapshot.mission.confidence.rawValue))",
             gitLine(snapshot.git),
-            "Reality: \(snapshot.reality.score)% - \(snapshot.reality.currentState)",
+            "Reality score: \(snapshot.reality.score)% (project state, not certainty) - \(snapshot.reality.currentState)",
+            "Confidence basis: \(confidenceBasisLine(for: snapshot))",
             verificationLine(snapshot.verificationSummary),
             "Evidence provenance: \(evidenceProvenanceLine(snapshot.evidence))",
             "Release: \(release.status.rawValue) - \(tidyTerminalText(release.headline))",
@@ -130,6 +131,10 @@ struct LocalForgeCLI {
         }
 
         return lines
+    }
+
+    private static func confidenceBasisLine(for snapshot: RepoSnapshot) -> String {
+        "type \(snapshot.identity.confidence.rawValue), mission \(snapshot.mission.confidence.rawValue), scan evidence \(evidenceProvenanceLine(snapshot.evidence))"
     }
 
     private static func truthDebtReleaseClaimLine(_ report: TruthDebtReport) -> String {
