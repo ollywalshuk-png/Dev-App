@@ -115,6 +115,10 @@ private struct WorkspaceTruthTab: View {
         let staleVerified = staleVerifiedCount(snapshot)
         let activeAssumptions = assumptions.filter { $0.status == .active }.count
         let scoreColor = realityColor(snapshot.reality.score)
+        let positiveLift = breakdown.positives.reduce(0) { $0 + $1.delta }
+        let negativePressure = breakdown.negatives.reduce(0) { $0 + $1.delta }
+        let scoreAuditText = "Base \(breakdown.baseline) +\(positiveLift) lift \(negativePressure) pressure"
+        let contributionCount = breakdown.contributions.count
 
         return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 16) {
@@ -139,15 +143,26 @@ private struct WorkspaceTruthTab: View {
                     }
                 }
                 Spacer(minLength: 12)
-                VStack(alignment: .trailing, spacing: 2) {
+                VStack(alignment: .trailing, spacing: 5) {
                     Text("\(snapshot.reality.score)%")
                         .font(.system(size: 46, weight: .bold).monospacedDigit())
                         .foregroundStyle(scoreColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.65)
-                    Text("Reality Score")
+                    Text("Final Reality Score")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(scoreAuditText)
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Text("\(contributionCount) score input\(contributionCount == 1 ? "" : "s")")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
                     Text("Last scan \(snapshot.scannedAt.formatted(date: .abbreviated, time: .shortened))")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
