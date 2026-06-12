@@ -75,52 +75,140 @@ private struct WorkspaceTruthTab: View {
     var body: some View {
         let t = store.workspaceTruth
         VStack(alignment: .leading, spacing: 14) {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
-                Stat(label: "Projects", value: "\(t.totalProjects)", color: .blue)
-                Stat(label: "Verified Records", value: "\(t.verifiedRecords)", color: .green)
-                Stat(label: "Evidence Records", value: "\(t.evidenceRecords)", color: .indigo)
-                Stat(label: "Open Risks", value: "\(t.openRisks)", color: t.openRisks > 0 ? .red : .gray)
-                Stat(label: "Active Assumptions", value: "\(t.activeAssumptions)", color: t.activeAssumptions > 0 ? .orange : .gray)
-                Stat(label: "Critical Failures", value: "\(t.criticalFailures)", color: t.criticalFailures > 0 ? .red : .gray)
-                Stat(label: "Decisions", value: "\(t.decisionRecords)", color: .purple)
-                Stat(label: "Architecture", value: "\(t.architectureItems)", color: .teal)
-                Stat(label: "Stale Verified", value: "\(t.staleVerifications)", color: t.staleVerifications > 0 ? .orange : .gray)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-
             if let snapshot = store.selectedSnapshot {
+                truthScorePanel(snapshot: snapshot)
+                stressPanel(snapshot: snapshot)
                 realityBreakdownCard(snapshot: snapshot)
-                confidenceCard
-                registerHealthCard
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: 12)], spacing: 12) {
+                    confidenceCard
+                    registerHealthCard
+                }
             } else {
-                Text("Open a project to see its Reality breakdown, Confidence, and Register Health.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(12)
-                    .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                EmptyTruthPanel(
+                    title: t.totalProjects == 0 ? "No truth records yet" : "No active project selected",
+                    message: t.totalProjects == 0
+                        ? "Open a repository to create the first local truth ledger. The score stays empty until LocalForge has a project, a mission, verification areas, and evidence to read."
+                        : "Select a project to see its Reality score, confidence, register coverage, and stress gaps.",
+                    symbol: t.totalProjects == 0 ? "folder.badge.plus" : "scope",
+                    color: .indigo
+                )
             }
+            portfolioSnapshot(summary: t)
         }
+    }
+
+    private func truthScorePanel(snapshot: RepoSnapshot) -> some View {
+        let projectID = store.selectedProjectID
+        let evidence = store.evidence(for: projectID)
+        let risks = store.risks(for: projectID)
+        let assumptions = store.assumptions(for: projectID)
+        let summary = snapshot.verificationSummary
+        let confidence = store.selectedConfidence
+        let health = store.selectedRegisterHealth
+        let registerCoverage = registerCoverageScore(health)
+        let strongEvidence = evidence.filter { isStrongEvidence($0.classification) }.count
+        let openBlockers = risks.filter(\.isReleaseBlocking).count
+        let staleVerified = staleVerifiedCount(snapshot)
+        let activeAssumptions = assumptions.filter { $0.status == .active }.count
+        let scoreColor = realityColor(snapshot.reality.score)
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 7) {
+                    Label("Selected Project Truth", systemImage: "checkmark.shield")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+                    Text(store.selectedProject?.name ?? snapshot.project.name)
+                        .font(.system(size: 24, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                        .truncationMode(.middle)
+                    Text(snapshot.reality.currentState)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        Pill(text: "Confidence \(confidence.score)%", color: confidenceColor(confidence.score))
+                        Pill(text: confidence.label, color: confidenceColor(confidence.score))
+                        Pill(text: "\(summary.verified)/\(summary.total) verified", color: summary.failed > 0 ? .orange : .green)
+                    }
+                }
+                Spacer(minLength: 12)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(snapshot.reality.score)%")
+                        .font(.system(size: 46, weight: .bold).monospacedDigit())
+                        .foregroundStyle(scoreColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                    Text("Reality Score")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text("Last scan \(snapshot.scannedAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            ScoreTrack(value: snapshot.reality.score, color: scoreColor)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 10)], spacing: 10) {
+                TruthMetric(label: "Strong Evidence", value: "\(strongEvidence)", detail: "Observed, measured, verified", symbol: "doc.text.magnifyingglass", color: strongEvidence > 0 ? .green : .orange)
+                TruthMetric(label: "Open Blockers", value: "\(openBlockers)", detail: "Release-blocking risks", symbol: "exclamationmark.octagon", color: openBlockers > 0 ? .red : .gray)
+                TruthMetric(label: "Unknown Areas", value: "\(summary.unknown)", detail: "In verification ledger", symbol: "questionmark.circle", color: summary.unknown > 0 ? .orange : .gray)
+                TruthMetric(label: "Register Cover", value: "\(registerCoverage)%", detail: "Average truth coverage", symbol: "rectangle.grid.2x2", color: coverageColor(registerCoverage))
+                TruthMetric(label: "Stale Verified", value: "\(staleVerified)", detail: "Needs re-check", symbol: "clock.badge.exclamationmark", color: staleVerified > 0 ? .orange : .gray)
+                TruthMetric(label: "Assumptions", value: "\(activeAssumptions)", detail: "Still active", symbol: "lightbulb", color: activeAssumptions > 0 ? .orange : .gray)
+            }
+            TruthStatusLine(
+                title: trustStatement(snapshot: snapshot, evidenceCount: evidence.count, blockers: openBlockers),
+                detail: snapshot.reality.nextAction,
+                symbol: openBlockers > 0 || summary.failed > 0 ? "exclamationmark.triangle" : "arrow.right.circle",
+                color: openBlockers > 0 || summary.failed > 0 ? .orange : .blue
+            )
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func realityBreakdownCard(snapshot: RepoSnapshot) -> some View {
         let breakdown = store.selectedRealityBreakdown
         return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Reality Breakdown").font(.system(size: 18, weight: .semibold))
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Reality Breakdown").font(.system(size: 18, weight: .semibold))
+                    Text("Attribution behind the score. Baseline and deltas explain pressure; the engine still owns the final percentage.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Spacer()
-                Text("\(snapshot.reality.score)%")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(.green)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(snapshot.reality.score)%")
+                        .font(.system(size: 22, weight: .bold).monospacedDigit())
+                        .foregroundStyle(realityColor(snapshot.reality.score))
+                    Text("final")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
-            ForEach(breakdown.contributions) { c in
-                ContributionRow(label: c.label, delta: c.delta)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 132), spacing: 10)], spacing: 10) {
+                TruthMetric(label: "Baseline", value: "\(breakdown.baseline)", detail: "Starting posture", symbol: "equal.circle", color: .blue)
+                TruthMetric(label: "Lift", value: "+\(breakdown.positives.reduce(0) { $0 + $1.delta })", detail: "\(breakdown.positives.count) positive inputs", symbol: "arrow.up.circle", color: .green)
+                TruthMetric(label: "Pressure", value: "\(breakdown.negatives.reduce(0) { $0 + $1.delta })", detail: "\(breakdown.negatives.count) deductions", symbol: "arrow.down.circle", color: breakdown.negatives.isEmpty ? .gray : .red)
+            }
+            if !breakdown.positives.isEmpty {
+                ContributionGroup(title: "Evidence raising the score", contributions: breakdown.positives, color: .green)
+            }
+            if !breakdown.negatives.isEmpty {
+                ContributionGroup(title: "Risks reducing the score", contributions: breakdown.negatives, color: .red)
             }
             if breakdown.contributions.isEmpty {
-                Text("Nothing tracked yet — start with a Mission and verification areas.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                EmptyTruthPanel(
+                    title: "No score inputs yet",
+                    message: "Start with a mission, verification areas, and at least one evidence record. Until then the Reality score is intentionally cautious.",
+                    symbol: "tray",
+                    color: .gray
+                )
             }
         }
         .padding(14)
@@ -130,23 +218,36 @@ private struct WorkspaceTruthTab: View {
 
     private var confidenceCard: some View {
         let c = store.selectedConfidence
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Confidence").font(.system(size: 18, weight: .semibold))
-                    Text(c.summary).font(.caption).foregroundStyle(.secondary)
+                    Text("How well LocalForge can trust what it knows, separate from whether the project is healthy.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
                 Text("\(c.score)%")
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 22, weight: .bold).monospacedDigit())
                     .foregroundStyle(confidenceColor(c.score))
                 Text(c.label).font(.caption.weight(.semibold))
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(confidenceColor(c.score).opacity(0.16), in: Capsule())
                     .foregroundStyle(confidenceColor(c.score))
             }
+            Text(c.summary)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             ForEach(c.contributions) { item in
                 ContributionRow(label: item.label, delta: item.delta)
+            }
+            if c.contributions.isEmpty {
+                Text("No confidence inputs yet. Add evidence and update verification records to make this defensible.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(14)
@@ -156,10 +257,19 @@ private struct WorkspaceTruthTab: View {
 
     private var registerHealthCard: some View {
         let h = store.selectedRegisterHealth
+        let cover = registerCoverageScore(h)
         return VStack(alignment: .leading, spacing: 10) {
-            Text("Register Health").font(.system(size: 18, weight: .semibold))
-            Text("Tells you where truth is weak — low coverage means LocalForge can't fully back its claims.")
-                .font(.caption).foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Register Health").font(.system(size: 18, weight: .semibold))
+                    Text("Where the truth ledger is strong or thin.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(cover)%")
+                    .font(.system(size: 22, weight: .bold).monospacedDigit())
+                    .foregroundStyle(coverageColor(cover))
+            }
             CoverageBar(label: "Evidence", value: h.evidenceCoverage)
             CoverageBar(label: "Risks", value: h.riskCoverage)
             CoverageBar(label: "Decisions", value: h.decisionCoverage)
@@ -171,8 +281,328 @@ private struct WorkspaceTruthTab: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
 
+    private func portfolioSnapshot(summary t: WorkspaceTruthSummary) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Workspace Truth Ledger")
+                    .font(.system(size: 18, weight: .semibold))
+                Spacer()
+                Text("\(t.totalProjects) project\(t.totalProjects == 1 ? "" : "s")")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 10)], spacing: 10) {
+                Stat(label: "Verified Records", value: "\(t.verifiedRecords)", color: .green)
+                Stat(label: "Evidence Records", value: "\(t.evidenceRecords)", color: .indigo)
+                Stat(label: "Open Risks", value: "\(t.openRisks)", color: t.openRisks > 0 ? .red : .gray)
+                Stat(label: "Active Assumptions", value: "\(t.activeAssumptions)", color: t.activeAssumptions > 0 ? .orange : .gray)
+                Stat(label: "Critical Failures", value: "\(t.criticalFailures)", color: t.criticalFailures > 0 ? .red : .gray)
+                Stat(label: "Decisions", value: "\(t.decisionRecords)", color: .purple)
+                Stat(label: "Architecture", value: "\(t.architectureItems)", color: .teal)
+                Stat(label: "Stale Verified", value: "\(t.staleVerifications)", color: t.staleVerifications > 0 ? .orange : .gray)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
+    private func stressPanel(snapshot: RepoSnapshot) -> some View {
+        let projectID = store.selectedProjectID
+        let evidence = store.evidence(for: projectID)
+        let risks = store.risks(for: projectID)
+        let assumptions = store.assumptions(for: projectID)
+        let summary = snapshot.verificationSummary
+        let openBlockers = risks.filter(\.isReleaseBlocking).count
+        let staleVerified = staleVerifiedCount(snapshot)
+        let activeAssumptions = assumptions.filter { $0.status == .active }.count
+        let zeroFiles = snapshot.summary.totalFiles == 0
+        let noVerification = summary.total == 0
+        let noEvidence = evidence.isEmpty
+        let failed = summary.failed
+
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Stress Readout", systemImage: "waveform.path.ecg")
+                    .font(.system(size: 18, weight: .semibold))
+                Spacer()
+                TruthHealthBadge(text: stressBadgeText(blockers: openBlockers, failed: failed, unknown: summary.unknown, noEvidence: noEvidence), color: stressColor(blockers: openBlockers, failed: failed, unknown: summary.unknown, noEvidence: noEvidence))
+            }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
+                StressItem(
+                    title: noVerification ? "Verification ledger is empty" : "Verification ledger is active",
+                    detail: noVerification ? "No areas can be defended yet. Seed verification areas before trusting the percentage." : "\(summary.total) areas tracked: \(summary.verified) verified, \(failed) failed, \(summary.unknown) unknown.",
+                    symbol: noVerification ? "tray" : "checklist",
+                    color: noVerification ? .orange : .green
+                )
+                StressItem(
+                    title: noEvidence ? "Evidence is missing" : "Evidence is on file",
+                    detail: noEvidence ? "The score can describe state, but confidence stays weak until proof is captured." : "\(evidence.count) evidence record\(evidence.count == 1 ? "" : "s") available for audit.",
+                    symbol: noEvidence ? "doc.badge.clock" : "doc.text.magnifyingglass",
+                    color: noEvidence ? .orange : .green
+                )
+                StressItem(
+                    title: openBlockers == 0 ? "No release blockers recorded" : "\(openBlockers) release blocker\(openBlockers == 1 ? "" : "s")",
+                    detail: openBlockers == 0 ? "Open risks do not currently block release by severity." : "Open critical or high-likelihood risks are suppressing trust.",
+                    symbol: openBlockers == 0 ? "shield.checkered" : "exclamationmark.octagon",
+                    color: openBlockers == 0 ? .green : .red
+                )
+                StressItem(
+                    title: staleVerified == 0 ? "Verified records are fresh enough" : "\(staleVerified) stale verification\(staleVerified == 1 ? "" : "s")",
+                    detail: staleVerified == 0 ? "No verified record is currently stale or expired." : "Re-run or refresh these areas before treating them as release proof.",
+                    symbol: staleVerified == 0 ? "clock" : "clock.badge.exclamationmark",
+                    color: staleVerified == 0 ? .green : .orange
+                )
+                StressItem(
+                    title: activeAssumptions == 0 ? "No active assumptions" : "\(activeAssumptions) active assumption\(activeAssumptions == 1 ? "" : "s")",
+                    detail: activeAssumptions == 0 ? "No unresolved assumption is pulling confidence down." : "Convert assumptions into evidence or verification tasks.",
+                    symbol: activeAssumptions == 0 ? "checkmark.circle" : "lightbulb",
+                    color: activeAssumptions == 0 ? .green : .orange
+                )
+                StressItem(
+                    title: zeroFiles ? "Scan returned zero files" : "Scan has repository evidence",
+                    detail: zeroFiles ? "Refresh folder access or rescan; a zero-file scan is not a trustworthy product read." : "\(snapshot.summary.totalFiles) files observed in the approved folder.",
+                    symbol: zeroFiles ? "lock.trianglebadge.exclamationmark" : "folder",
+                    color: zeroFiles ? .red : .blue
+                )
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
     private func confidenceColor(_ s: Int) -> Color {
         switch s { case 80...: .green; case 55..<80: .blue; case 30..<55: .orange; default: .red }
+    }
+
+    private func realityColor(_ s: Int) -> Color {
+        switch s { case 75...: .green; case 55..<75: .blue; case 35..<55: .orange; default: .red }
+    }
+
+    private func coverageColor(_ s: Int) -> Color {
+        switch s { case 80...: .green; case 50..<80: .blue; case 25..<50: .orange; default: .red }
+    }
+
+    private func registerCoverageScore(_ h: RegisterHealth) -> Int {
+        let average = (h.evidenceCoverage + h.riskCoverage + h.decisionCoverage + h.architectureCoverage + h.assumptionCoverage) / 5
+        return Int((average * 100).rounded())
+    }
+
+    private func staleVerifiedCount(_ snapshot: RepoSnapshot) -> Int {
+        snapshot.verification.filter {
+            $0.state == .verified && ($0.age == .stale || $0.age == .expired)
+        }.count
+    }
+
+    private func isStrongEvidence(_ classification: EvidenceClassification) -> Bool {
+        classification == .observed || classification == .measured || classification == .verified
+    }
+
+    private func trustStatement(snapshot: RepoSnapshot, evidenceCount: Int, blockers: Int) -> String {
+        if snapshot.verificationSummary.total == 0 {
+            return "Truth is not stress-testable yet: no verification areas are tracked."
+        }
+        if evidenceCount == 0 {
+            return "Truth is provisional: verification exists, but evidence is not captured yet."
+        }
+        if blockers > 0 {
+            return "Truth is actionable: blockers are visible and should drive the next release decision."
+        }
+        return "Truth is audit-ready enough to inspect, challenge, and improve."
+    }
+
+    private func stressBadgeText(blockers: Int, failed: Int, unknown: Int, noEvidence: Bool) -> String {
+        if blockers > 0 || failed > 0 { return "High Pressure" }
+        if noEvidence || unknown > 0 { return "Needs Proof" }
+        return "Stable"
+    }
+
+    private func stressColor(blockers: Int, failed: Int, unknown: Int, noEvidence: Bool) -> Color {
+        if blockers > 0 || failed > 0 { return .red }
+        if noEvidence || unknown > 0 { return .orange }
+        return .green
+    }
+}
+
+private struct ScoreTrack: View {
+    var value: Int
+    var color: Color
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(Color.secondary.opacity(0.12))
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(color)
+                    .frame(width: max(6, geo.size.width * CGFloat(clampedValue) / 100))
+            }
+        }
+        .frame(height: 10)
+        .accessibilityLabel("Reality score")
+        .accessibilityValue("\(clampedValue) percent")
+    }
+
+    private var clampedValue: Int {
+        min(100, max(0, value))
+    }
+}
+
+private struct TruthMetric: View {
+    var label: String
+    var value: String
+    var detail: String
+    var symbol: String
+    var color: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: symbol)
+                .foregroundStyle(color)
+                .frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(label.uppercased())
+                    .font(.caption2.weight(.bold))
+                    .tracking(0.5)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Text(value)
+                    .font(.system(size: 21, weight: .bold).monospacedDigit())
+                    .foregroundStyle(color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Text(detail)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+        .padding(10)
+        .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct TruthStatusLine: View {
+    var title: String
+    var detail: String
+    var symbol: String
+    var color: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct TruthHealthBadge: View {
+    var text: String
+    var color: Color
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.bold))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.16), in: Capsule())
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
+    }
+}
+
+private struct StressItem: View {
+    var title: String
+    var detail: String
+    var symbol: String
+    var color: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol)
+                .foregroundStyle(color)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
+        .padding(10)
+        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+private struct ContributionGroup: View {
+    var title: String
+    var contributions: [RealityContribution]
+    var color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title.uppercased())
+                .font(.caption2.weight(.bold))
+                .tracking(0.5)
+                .foregroundStyle(color)
+            ForEach(contributions) { item in
+                ContributionRow(label: item.label, delta: item.delta)
+            }
+        }
+    }
+}
+
+private struct EmptyTruthPanel: View {
+    var title: String
+    var message: String
+    var symbol: String
+    var color: Color
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
