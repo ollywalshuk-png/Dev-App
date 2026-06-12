@@ -90,6 +90,72 @@ struct TruthDebtGateTests {
         #expect(report.caveats.first?.area == "Docs")
     }
 
+    @Test("truth debt area matching normalizes case and whitespace")
+    func truthDebtAreaMatchingNormalizesCaseAndWhitespace() {
+        let build = VerificationRecord(area: " build ", state: .verified)
+        let buildEvidence = EvidenceRecord(area: "BUILD", summary: "Build passed", classification: .measured)
+        let snapshot = snapshot(
+            applicability: [ApplicabilityItem(area: "Build", status: .required, priority: .critical)],
+            verification: [build],
+            mission: UserMissionProfile(statedMission: "Ship a developer trust tool", category: .developerTool)
+        )
+
+        let report = TruthDebtEngine().report(
+            snapshot: snapshot,
+            evidence: [buildEvidence],
+            risks: [],
+            assumptions: []
+        )
+
+        #expect(report.status == .defensible)
+        #expect(!report.gates.contains { $0.kind == .unverifiedArea && $0.area == "Build" })
+        #expect(!report.gates.contains { $0.kind == .missingEvidence })
+    }
+
+    @Test("dependency and assumption gates normalize linked area names")
+    func dependencyAndAssumptionGatesNormalizeLinkedAreaNames() {
+        let stateRestore = VerificationRecord(area: "State Restore", state: .failed)
+        let archive = VerificationRecord(
+            area: "Archive",
+            state: .unknown,
+            dependsOn: [" state restore "]
+        )
+        let assumption = AssumptionRecord(
+            assumption: "Archive output is reproducible",
+            status: .active,
+            linkedVerificationArea: " archive "
+        )
+        let snapshot = snapshot(
+            applicability: [
+                ApplicabilityItem(area: "State Restore", status: .required, priority: .high),
+                ApplicabilityItem(area: "Archive", status: .required, priority: .critical)
+            ],
+            verification: [stateRestore, archive],
+            mission: UserMissionProfile(statedMission: "Ship a notarised app", category: .developerTool)
+        )
+
+        let report = TruthDebtEngine().report(
+            snapshot: snapshot,
+            evidence: [],
+            risks: [],
+            assumptions: [assumption]
+        )
+
+        #expect(report.gates.contains {
+            $0.kind == .blockedDependency
+                && $0.area == "Archive"
+                && $0.detail.contains("Failed")
+                && $0.severity == .critical
+                && $0.blocksReleaseClaim
+        })
+        #expect(report.gates.contains {
+            $0.kind == .activeAssumption
+                && $0.area == " archive "
+                && $0.severity == .high
+                && $0.blocksReleaseClaim
+        })
+    }
+
     @Test("contradictory evidence blocks critical release claims")
     func contradictoryEvidenceBlocksCriticalClaims() {
         let verification = VerificationRecord(area: "Build", state: .verified)
@@ -124,6 +190,40 @@ struct TruthDebtGateTests {
                 && $0.sourceIdentifiers.contains(pass.id.uuidString)
                 && $0.sourceIdentifiers.contains(fail.id.uuidString)
         })
+    }
+
+    @Test("contradictory evidence uses normalized critical area priority")
+    func contradictoryEvidenceUsesNormalizedCriticalAreaPriority() {
+        let verification = VerificationRecord(area: "Build", state: .verified)
+        let pass = EvidenceRecord(
+            area: " build ",
+            summary: "Build passes locally",
+            classification: .observed
+        )
+        let fail = EvidenceRecord(
+            area: "BUILD",
+            summary: "Archive fails reproducibly",
+            classification: .measured
+        )
+        let snapshot = snapshot(
+            applicability: [ApplicabilityItem(area: "Build", status: .required, priority: .critical)],
+            verification: [verification],
+            mission: UserMissionProfile(statedMission: "Ship a developer trust tool", category: .developerTool)
+        )
+
+        let report = TruthDebtEngine().report(
+            snapshot: snapshot,
+            evidence: [pass, fail],
+            risks: [],
+            assumptions: []
+        )
+
+        let conflict = report.gates.first { $0.kind == .contradictoryEvidence }
+        #expect(conflict?.area == "build")
+        #expect(conflict?.severity == .high)
+        #expect(conflict?.blocksReleaseClaim == true)
+        #expect(conflict?.sourceIdentifiers.contains(pass.id.uuidString) == true)
+        #expect(conflict?.sourceIdentifiers.contains(fail.id.uuidString) == true)
     }
 
     @Test("dependency failures are surfaced as claim blockers")

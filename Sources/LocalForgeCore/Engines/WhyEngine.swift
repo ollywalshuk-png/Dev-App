@@ -249,15 +249,19 @@ public struct WhyEngine: Sendable {
         projectID: UUID,
         projectName: String
     ) -> [EvidenceConflict] {
-        // Group evidence by area.
-        let byArea = Dictionary(grouping: evidence) { $0.area }
+        // Group evidence by the same area semantics used by truth gates:
+        // whitespace and case do not create separate areas.
+        let byArea = Dictionary(grouping: evidence) { normalizedArea($0.area) }
         var conflicts: [EvidenceConflict] = []
 
-        for (area, records) in byArea where !area.isEmpty {
+        for (areaKey, records) in byArea where !areaKey.isEmpty {
             let success = records.filter(isSuccessEvidence)
             let failure = records.filter(isFailureEvidence)
 
             if !success.isEmpty && !failure.isEmpty {
+                let area = records
+                    .map { $0.area.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .first { !$0.isEmpty } ?? areaKey
                 conflicts.append(EvidenceConflict(
                     projectID: projectID,
                     projectName: projectName,
@@ -281,6 +285,10 @@ public struct WhyEngine: Sendable {
         let rows = evidenceProvenanceRows(for: evidence)
         guard !rows.isEmpty else { return }
         sections.append(.init(title: "Evidence Provenance", items: rows))
+    }
+
+    private func normalizedArea(_ area: String) -> String {
+        area.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func evidenceProvenanceRows(for evidence: [EvidenceRecord]) -> [WhyPanelRow] {
