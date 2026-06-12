@@ -31,6 +31,10 @@ struct EvidencePanel: View {
                     .foregroundStyle(.tertiary)
             }
 
+            if !records.isEmpty {
+                EvidenceAuditSummary(records: records)
+            }
+
             ForEach(records) { record in
                 EvidenceRow(
                     record: record,
@@ -187,7 +191,7 @@ private struct EvidenceRow: View {
                     Text(record.summary)
                         .font(.system(size: 13, weight: .semibold))
                     Tag(text: record.kind.rawValue, color: .blue)
-                    Tag(text: record.classification.rawValue, color: .green)
+                    Tag(text: record.classification.rawValue, color: classificationColor(record.classification))
                     Spacer()
                     Text(record.createdAt.formatted(date: .abbreviated, time: .omitted))
                         .font(.caption2)
@@ -201,6 +205,7 @@ private struct EvidenceRow: View {
                     }
                     .buttonStyle(.borderless)
                 }
+                EvidenceAuditLine(record: record)
                 if !record.body.isEmpty {
                     Text(record.body)
                         .font(.system(size: 12))
@@ -229,6 +234,108 @@ private struct EvidenceRow: View {
     }
 }
 
+private struct EvidenceAuditSummary: View {
+    var records: [EvidenceRecord]
+
+    private var strongCount: Int {
+        records.filter { isStrongEvidence($0.classification) }.count
+    }
+
+    private var reviewCount: Int {
+        records.count - strongCount
+    }
+
+    private var missingVerificationLinks: Int {
+        records.filter { !hasVerificationLink($0) }.count
+    }
+
+    private var newestRecord: EvidenceRecord? {
+        records.max { $0.createdAt < $1.createdAt }
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            AuditCue(
+                text: "\(strongCount) strong",
+                symbol: "checkmark.seal",
+                color: strongCount == 0 ? .secondary : .green
+            )
+            AuditCue(
+                text: "\(reviewCount) to review",
+                symbol: "questionmark.diamond",
+                color: reviewCount == 0 ? .secondary : .orange
+            )
+            AuditCue(
+                text: missingVerificationLinks == 0 ? "Verification-linked" : "\(missingVerificationLinks) no verification link",
+                symbol: "link",
+                color: missingVerificationLinks == 0 ? .green : .orange
+            )
+            if let newestRecord {
+                AuditCue(
+                    text: "Newest \(evidenceAgeDescriptor(newestRecord.createdAt))",
+                    symbol: "clock",
+                    color: evidenceAgeColor(newestRecord.createdAt)
+                )
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct EvidenceAuditLine: View {
+    var record: EvidenceRecord
+
+    var body: some View {
+        HStack(spacing: 6) {
+            AuditCue(
+                text: classificationCue(record.classification),
+                symbol: classificationSymbol(record.classification),
+                color: classificationColor(record.classification)
+            )
+            AuditCue(
+                text: hasVerificationLink(record) ? "Verification-linked" : "No verification link",
+                symbol: "checkmark.seal",
+                color: hasVerificationLink(record) ? .green : .orange
+            )
+            AuditCue(
+                text: crossLinkText(record),
+                symbol: "link",
+                color: crossLinkCount(record) == 0 ? .secondary : .blue
+            )
+            AuditCue(
+                text: evidenceAgeText(record.createdAt),
+                symbol: "clock",
+                color: evidenceAgeColor(record.createdAt)
+            )
+            if !record.author.isEmpty {
+                AuditCue(text: record.author, symbol: "person", color: .secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AuditCue: View {
+    var text: String
+    var symbol: String
+    var color: Color
+
+    var body: some View {
+        Label {
+            Text(text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+        } icon: {
+            Image(systemName: symbol)
+        }
+        .font(.caption2.weight(.semibold))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.12), in: Capsule())
+        .foregroundStyle(color)
+    }
+}
+
 private struct Tag: View {
     var text: String
     var color: Color
@@ -241,4 +348,90 @@ private struct Tag: View {
             .background(color.opacity(0.16), in: Capsule())
             .foregroundStyle(color)
     }
+}
+
+private func isStrongEvidence(_ classification: EvidenceClassification) -> Bool {
+    classification == .observed || classification == .measured || classification == .verified
+}
+
+private func classificationColor(_ classification: EvidenceClassification) -> Color {
+    switch classification {
+    case .verified: .green
+    case .measured: .teal
+    case .observed: .blue
+    case .inferred: .indigo
+    case .assumed: .orange
+    case .unknown: .red
+    }
+}
+
+private func classificationCue(_ classification: EvidenceClassification) -> String {
+    switch classification {
+    case .verified: "Verified evidence"
+    case .measured: "Measured evidence"
+    case .observed: "Observed evidence"
+    case .inferred: "Inference"
+    case .assumed: "Assumption"
+    case .unknown: "Basis unknown"
+    }
+}
+
+private func classificationSymbol(_ classification: EvidenceClassification) -> String {
+    switch classification {
+    case .verified: "checkmark.seal"
+    case .measured: "chart.bar"
+    case .observed: "eye"
+    case .inferred: "arrowshape.turn.up.right"
+    case .assumed: "questionmark.diamond"
+    case .unknown: "exclamationmark.triangle"
+    }
+}
+
+private func hasVerificationLink(_ record: EvidenceRecord) -> Bool {
+    !record.linkedVerificationIDs.isEmpty
+}
+
+private func crossLinkCount(_ record: EvidenceRecord) -> Int {
+    record.linkedRiskIDs.count
+        + record.linkedDecisionIDs.count
+        + record.linkedArchitectureIDs.count
+        + record.linkedAssumptionIDs.count
+        + record.linkedJournalIDs.count
+        + record.linkedNoteIDs.count
+        + (record.linkedID == nil ? 0 : 1)
+}
+
+private func crossLinkText(_ record: EvidenceRecord) -> String {
+    let count = crossLinkCount(record)
+    return count == 0 ? "No cross-links" : "\(count) cross-link\(count == 1 ? "" : "s")"
+}
+
+private func evidenceAgeText(_ date: Date) -> String {
+    "Added \(evidenceAgeDescriptor(date))"
+}
+
+private func evidenceAgeDescriptor(_ date: Date) -> String {
+    let days = evidenceAgeDays(since: date)
+    if days < 0 { return "in future" }
+    if days == 0 { return "today" }
+    if days == 1 { return "1d ago" }
+    if days < 14 { return "\(days)d ago" }
+    if days < 60 { return "\(days / 7)w ago" }
+    return "\(days / 30)mo ago"
+}
+
+private func evidenceAgeColor(_ date: Date) -> Color {
+    let days = evidenceAgeDays(since: date)
+    if days < 0 { return .red }
+    if days <= 7 { return .green }
+    if days <= 30 { return .blue }
+    if days <= 90 { return .orange }
+    return .red
+}
+
+private func evidenceAgeDays(since date: Date) -> Int {
+    let calendar = Calendar.current
+    let createdDay = calendar.startOfDay(for: date)
+    let currentDay = calendar.startOfDay(for: Date())
+    return calendar.dateComponents([.day], from: createdDay, to: currentDay).day ?? 0
 }
