@@ -15,42 +15,45 @@ struct DiagnosticRainBackground: View {
     private let tokenWidth = 7
     private let swiftTokens = [
         "let", "var", "func", "struct", "enum", "await", "return", "import",
-        "actor", "state", "truth", "verify", "risk", "release", "evid",
+        "actor", "async", "guard", "Task", "state", "truth", "verify", "risk",
+        "release", "evid",
     ]
     private let shellTokens = [
         "git", "swift", "build", "test", "cd", "grep", "codesign", "xcode",
-        "auval", "status", "diff", "log",
+        "auval", "status", "diff", "log", "zsh", "find", "open",
     ]
     private let jsonTokens = [
-        "{}", "[]", ":", "true", "false", "null", "\"id\"", "\"ok\"",
+        "{}", "[]", ":", "true", "false", "null", "\"id\"", "\"ok\"", "\"v\"",
     ]
     private let hexBinaryTokens = [
         "0xA7F2", "0x4A3F", "FF91", "3C7A", "A42F", "7D9C", "0101", "1100",
-        "1010", "0011",
+        "1010", "0011", "0x19D4", "E7B0", "1001", "0110",
     ]
     private let operatorTokens = [
-        "==", "!=", "&&", "||", "->", "=>", "::", "??", "<=", ">=",
+        "==", "!=", "&&", "||", "->", "=>", "::", "??", "<=", ">=", "...", "|>",
     ]
     private let multilingualTokens = [
-        "かな", "カナ", "字", "型", "値", "数", "光", "音",
-        "数", "码", "流", "点", "形", "源", "层", "核",
-        "код", "тест", "тип", "узел", "мод",
-        "한", "글", "코드", "값", "형", "빛",
-        "λ", "π", "Ω", "Δ", "Σ", "φ", "θ",
-        "ا", "ب", "م", "ن", "س", "ك", "ل",
-        "é", "ñ", "å", "ø", "ç", "ü", "ß",
+        "かな", "カナ", "字", "型", "値", "数", "光", "音", "列", "層",
+        "码", "流", "点", "形", "源", "层", "序", "节", "图", "量",
+        "код", "тест", "тип", "узел", "мод", "сиг", "ряд",
+        "한", "글", "코드", "값", "형", "빛", "열", "점",
+        "λ", "π", "Ω", "Δ", "Σ", "φ", "θ", "α", "β", "γ",
+        "ا", "ب", "م", "ن", "س", "ك", "ل", "ر",
+        "é", "ñ", "å", "ø", "ç", "ü", "ß", "ï",
     ]
     private let technicalSymbols = [
         "∑", "∂", "≈", "≤", "≥", "∞", "µ", "⌘", "⌥", "⟂", "◇", "◌",
+        "∴", "∵", "⊕", "⊗", "⎇", "⌁",
     ]
 
     var body: some View {
         if isEnabled && intensity != .off {
-            SwiftUI.TimelineView(PeriodicTimelineSchedule(from: Date(), by: intensity.frameInterval)) { timeline in
-                Canvas { context, size in
+            SwiftUI.TimelineView(.animation(minimumInterval: intensity.frameInterval, paused: reduceMotion || motion == .still)) { timeline in
+                Canvas(opaque: false, colorMode: .linear, rendersAsynchronously: true) { context, size in
                     drawRain(context: &context, size: size, date: effectiveDate(timeline.date))
                 }
                 .allowsHitTesting(false)
+                .drawingGroup(opaque: false, colorMode: .linear)
             }
             .opacity(effectiveOpacity)
         }
@@ -58,8 +61,8 @@ struct DiagnosticRainBackground: View {
 
     private var effectiveOpacity: Double {
         var opacity = intensity.opacity
-        if colorScheme == .light { opacity *= 0.68 }
-        if reduceWhenInactive && scenePhase != .active { opacity *= 0.25 }
+        if colorScheme == .light { opacity *= 0.76 }
+        if reduceWhenInactive && scenePhase != .active { opacity *= 0.28 }
         return opacity
     }
 
@@ -95,6 +98,8 @@ struct DiagnosticRainBackground: View {
                     rows: rows
                 )
                 let isStream = trail != nil
+                guard isStream || drawsAmbient(column: column, virtualRow: virtualRow) else { continue }
+
                 let token = token(
                     forColumn: column,
                     virtualRow: virtualRow,
@@ -120,15 +125,15 @@ struct DiagnosticRainBackground: View {
         case .light:
             return Color(
                 hue: hue,
-                saturation: isAmbient ? 0.38 : isHead ? 0.70 : 0.54,
-                brightness: isHead ? 0.42 : 0.34,
+                saturation: isAmbient ? 0.46 : isHead ? 0.78 : 0.62,
+                brightness: isHead ? 0.48 : 0.38,
                 opacity: alpha
             )
         case .dark:
             return Color(
                 hue: hue,
-                saturation: isAmbient ? 0.52 : isHead ? 0.88 : 0.72,
-                brightness: isHead ? 1.00 : 0.82,
+                saturation: isAmbient ? 0.62 : isHead ? 0.92 : 0.78,
+                brightness: isHead ? 1.00 : 0.90,
                 opacity: alpha
             )
         @unknown default:
@@ -137,13 +142,15 @@ struct DiagnosticRainBackground: View {
     }
 
     private func streamHue(for column: Int) -> Double {
-        switch positiveModulo(column * 17, 6) {
+        switch positiveModulo(column * 17, 8) {
         case 0: return 0.43 // green
         case 1: return 0.50 // cyan
         case 2: return 0.57 // blue
-        case 3: return 0.74 // violet
-        case 4: return 0.14 // amber
-        default: return 0.83 // magenta
+        case 3: return 0.63 // indigo
+        case 4: return 0.74 // violet
+        case 5: return 0.14 // amber
+        case 6: return 0.83 // magenta
+        default: return 0.03 // red-orange
         }
     }
 
@@ -151,7 +158,13 @@ struct DiagnosticRainBackground: View {
         let group = tokenGroup(forColumn: column, virtualRow: virtualRow, variant: variant)
         let mixed = column &* 97 &+ virtualRow &* 31 &+ variant &* 13
         let raw = group[positiveModulo(mixed, group.count)]
-        let clipped = String(raw.prefix(tokenWidth))
+        return laneToken(raw)
+    }
+
+    private func laneToken(_ raw: String) -> String {
+        let sanitized = raw
+            .filter { !$0.isWhitespace && !$0.isNewline }
+        let clipped = String(sanitized.prefix(tokenWidth))
         if clipped.count >= tokenWidth { return clipped }
         return clipped + String(repeating: " ", count: tokenWidth - clipped.count)
     }
@@ -159,12 +172,12 @@ struct DiagnosticRainBackground: View {
     private func tokenGroup(forColumn column: Int, virtualRow: Int, variant: Int) -> [String] {
         let selector = positiveModulo(column &* 41 &+ virtualRow &* 7 &+ variant &* 17, 100)
         switch selector {
-        case 0..<18: return swiftTokens
-        case 18..<32: return shellTokens
-        case 32..<44: return jsonTokens
-        case 44..<58: return hexBinaryTokens
-        case 58..<70: return operatorTokens
-        case 70..<90: return multilingualTokens
+        case 0..<19: return swiftTokens
+        case 19..<33: return shellTokens
+        case 33..<45: return jsonTokens
+        case 45..<60: return hexBinaryTokens
+        case 60..<72: return operatorTokens
+        case 72..<92: return multilingualTokens
         default: return technicalSymbols
         }
     }
@@ -175,30 +188,34 @@ struct DiagnosticRainBackground: View {
         return Int(distance.rounded(.down))
     }
 
+    private func drawsAmbient(column: Int, virtualRow: Int) -> Bool {
+        positiveModulo(column &* 53 &+ virtualRow &* 97, 100) < density.ambientCoverage
+    }
+
     private func streamProfile(for column: Int) -> StreamProfile {
         let bucket = positiveModulo(column * 37, 100)
         let rowsPerSecond: Double
         if bucket < 80 {
-            rowsPerSecond = 0.16 + Double(positiveModulo(column * 11, 16)) / 100
+            rowsPerSecond = 0.24 + Double(positiveModulo(column * 11, 22)) / 100
         } else if bucket < 95 {
-            rowsPerSecond = 0.28 + Double(positiveModulo(column * 13, 18)) / 100
+            rowsPerSecond = 0.46 + Double(positiveModulo(column * 13, 26)) / 100
         } else {
-            rowsPerSecond = 0.42 + Double(positiveModulo(column * 17, 20)) / 100
+            rowsPerSecond = 0.72 + Double(positiveModulo(column * 17, 34)) / 100
         }
 
         return StreamProfile(
             rowsPerSecond: rowsPerSecond,
-            length: 9 + positiveModulo(column * 5, 10),
+            length: 11 + positiveModulo(column * 5, 11),
             phase: positiveModulo(column * 19, 80),
-            brightness: 0.70 + Double(positiveModulo(column * 23, 40)) / 100,
-            fontSize: 8.8 + CGFloat(positiveModulo(column * 7, 2))
+            brightness: 0.76 + Double(positiveModulo(column * 23, 42)) / 100,
+            fontSize: 9.2 + CGFloat(positiveModulo(column * 7, 3)) * 0.45
         )
     }
 
     private func opacity(forTrail trail: Int, length: Int, brightness: Double) -> Double {
         if trail == 0 { return min(1, brightness * 1.75) }
         let remaining = 1.0 - Double(trail) / Double(max(length, 1))
-        return max(0.16, remaining * remaining * brightness * 1.45)
+        return max(0.20, remaining * remaining * brightness * 1.58)
     }
 
     private func positiveModulo(_ value: Int, _ modulus: Int) -> Int {
@@ -226,18 +243,18 @@ extension DiagnosticBackgroundIntensity {
     var opacity: Double {
         switch self {
         case .off: 0
-        case .low: 0.10
-        case .medium: 0.18
-        case .high: 0.28
+        case .low: 0.14
+        case .medium: 0.25
+        case .high: 0.38
         }
     }
 
     var frameInterval: TimeInterval {
         switch self {
         case .off: 1.0
-        case .low: 0.25
-        case .medium: 0.16
-        case .high: 0.12
+        case .low: 1.0 / 30.0
+        case .medium: 1.0 / 45.0
+        case .high: 1.0 / 60.0
         }
     }
 }
@@ -245,41 +262,49 @@ extension DiagnosticBackgroundIntensity {
 extension DiagnosticBackgroundDensity {
     var columnWidth: CGFloat {
         switch self {
-        case .sparse: 66
-        case .balanced: 54
-        case .dense: 48
+        case .sparse: 60
+        case .balanced: 50
+        case .dense: 44
         }
     }
 
     var rowHeight: CGFloat {
         switch self {
-        case .sparse: 19
-        case .balanced: 17
-        case .dense: 15.5
+        case .sparse: 18
+        case .balanced: 16
+        case .dense: 14.5
         }
     }
 
     var maxColumns: Int {
         switch self {
-        case .sparse: 52
-        case .balanced: 72
-        case .dense: 88
+        case .sparse: 64
+        case .balanced: 94
+        case .dense: 120
         }
     }
 
     var maxRows: Int {
         switch self {
-        case .sparse: 90
-        case .balanced: 110
-        case .dense: 128
+        case .sparse: 100
+        case .balanced: 132
+        case .dense: 160
         }
     }
 
     var ambientAlpha: Double {
         switch self {
-        case .sparse: 0.26
-        case .balanced: 0.34
-        case .dense: 0.40
+        case .sparse: 0.32
+        case .balanced: 0.44
+        case .dense: 0.52
+        }
+    }
+
+    var ambientCoverage: Int {
+        switch self {
+        case .sparse: 42
+        case .balanced: 58
+        case .dense: 72
         }
     }
 }
