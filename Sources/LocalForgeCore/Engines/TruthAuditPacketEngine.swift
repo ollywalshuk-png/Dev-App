@@ -68,6 +68,10 @@ public struct TruthAuditPacketEngine: Sendable {
             limit: negativeContributionLimit
         )
         let nextActions = Array(debtReport.nextActions.prefix(max(0, actionLimit)))
+        let warnings = confidenceWarnings(
+            confidence: confidence,
+            debtReport: debtReport
+        )
 
         var lines: [String] = [
             "# Truth Audit Packet",
@@ -78,7 +82,12 @@ public struct TruthAuditPacketEngine: Sendable {
             "",
             "## Confidence",
             "- Score: \(confidence.score)% (\(safeText(confidence.label)))",
-            "- Summary: \(safeText(confidence.summary))",
+            "- Summary: \(safeText(confidence.summary))"
+        ]
+
+        appendConfidenceWarnings(warnings, to: &lines)
+
+        lines += [
             "",
             "## Register Health",
             "- Coverage: Evidence \(percent(registerHealth.evidenceCoverage))%, Risks \(percent(registerHealth.riskCoverage))%, Decisions \(percent(registerHealth.decisionCoverage))%, Architecture \(percent(registerHealth.architectureCoverage))%, Assumptions \(percent(registerHealth.assumptionCoverage))%",
@@ -112,6 +121,23 @@ public struct TruthAuditPacketEngine: Sendable {
         }
 
         return reportEngine.redact(lines.joined(separator: "\n"))
+    }
+
+    private func appendConfidenceWarnings(
+        _ warnings: [String],
+        to lines: inout [String]
+    ) {
+        lines.append("")
+        lines.append("## Confidence Warnings")
+
+        guard !warnings.isEmpty else {
+            lines.append("- None")
+            return
+        }
+
+        for warning in warnings {
+            lines.append("- \(safeText(warning))")
+        }
     }
 
     private func appendProvenanceRows(
@@ -149,6 +175,104 @@ public struct TruthAuditPacketEngine: Sendable {
                 .sorted(by: provenancePrecedes)
                 .prefix(limit)
         )
+    }
+
+    private func confidenceWarnings(
+        confidence: ConfidenceAssessment,
+        debtReport: TruthDebtReport
+    ) -> [String] {
+        var warnings: [String] = []
+
+        if confidence.score < 55 {
+            var warning = "Weak confidence: \(confidence.score)% (\(confidence.label)) - \(confidence.summary)"
+            let drivers = confidence.contributions
+                .filter { $0.delta < 0 }
+                .sorted(by: contributionPrecedes)
+                .prefix(3)
+                .map { "\($0.label) (\($0.delta))" }
+            if !drivers.isEmpty {
+                warning += " Drivers: \(drivers.joined(separator: "; "))"
+            }
+            warnings.append(warning)
+        }
+
+        let assumptionGates = warningGates(
+            from: debtReport,
+            kind: .activeAssumption
+        )
+        if !assumptionGates.isEmpty {
+            let blockers = assumptionGates.filter(\.blocksReleaseClaim).count
+            warnings.append(
+                "Assumptions: \(assumptionGates.count) active assumption gate(s); \(blockers) block release claims. Top: \(gateSummary(assumptionGates))"
+            )
+        }
+
+        let contradictionGates = warningGates(
+            from: debtReport,
+            kind: .contradictoryEvidence
+        )
+        if !contradictionGates.isEmpty {
+            warnings.append(
+                "Contradictions: \(contradictionGates.count) contradictory evidence gate(s). Top: \(gateSummary(contradictionGates))"
+            )
+        }
+
+        let staleGates = warningGates(
+            from: debtReport,
+            kind: .staleVerification
+        )
+        if !staleGates.isEmpty {
+            warnings.append(
+                "Stale evidence: \(staleGates.count) stale/expired verification gate(s). Top: \(gateSummary(staleGates))"
+            )
+        }
+
+        return warnings
+    }
+
+    private func warningGates(
+        from report: TruthDebtReport,
+        kind: TruthDebtKind
+    ) -> [TruthDebtGate] {
+        report.gates
+            .filter { $0.kind == kind }
+            .sorted(by: gatePrecedes)
+    }
+
+    private func gateSummary(
+        _ gates: [TruthDebtGate],
+        limit: Int = 2
+    ) -> String {
+        gates
+            .prefix(max(0, limit))
+            .map(\.title)
+            .joined(separator: "; ")
+    }
+
+    private func contributionPrecedes(
+        _ lhs: RealityContribution,
+        _ rhs: RealityContribution
+    ) -> Bool {
+        if lhs.delta != rhs.delta { return lhs.delta < rhs.delta }
+        return lhs.label < rhs.label
+    }
+
+    private func gatePrecedes(
+        _ lhs: TruthDebtGate,
+        _ rhs: TruthDebtGate
+    ) -> Bool {
+        if lhs.blocksReleaseClaim != rhs.blocksReleaseClaim {
+            return lhs.blocksReleaseClaim && !rhs.blocksReleaseClaim
+        }
+
+        if lhs.severity != rhs.severity { return lhs.severity < rhs.severity }
+
+        let lhsArea = sortKey(lhs.area)
+        let rhsArea = sortKey(rhs.area)
+        if lhsArea != rhsArea { return lhsArea < rhsArea }
+
+        if lhs.title != rhs.title { return lhs.title < rhs.title }
+        return lhs.id < rhs.id
     }
 
     private func provenancePrecedes(
