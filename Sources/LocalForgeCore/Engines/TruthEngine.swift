@@ -83,6 +83,166 @@ public struct TruthEngine: Sendable {
         return RealityBreakdown(baseline: baseline, contributions: items, finalScore: snapshot.reality.score)
     }
 
+    /// Returns structured source rows for the material contribution categories
+    /// already exposed by `breakdown`. This is provenance only; it does not
+    /// compute or alter score values.
+    public func contributionProvenance(
+        snapshot: RepoSnapshot,
+        evidence: [EvidenceRecord],
+        risks: [RiskRecord],
+        assumptions: [AssumptionRecord]
+    ) -> [TruthContributionProvenanceRow] {
+        var rows: [TruthContributionProvenanceRow] = []
+        var applicabilityByArea: [String: ApplicabilityItem] = [:]
+        for item in snapshot.applicability {
+            applicabilityByArea[item.area] = item
+        }
+        let releaseBlockingRiskIDs = Set(risks.filter(\.isReleaseBlocking).map(\.id))
+
+        func priority(for area: String) -> VerificationPriority {
+            applicabilityByArea[area]?.priority ?? .medium
+        }
+
+        func releaseRelevant(area: String) -> Bool {
+            guard let item = applicabilityByArea[area], item.status.inScope else { return false }
+            return item.priority == .critical || item.priority == .high
+        }
+
+        func releaseRelevant(riskIDs: [UUID], area: String) -> Bool {
+            releaseRelevant(area: area) || riskIDs.contains { releaseBlockingRiskIDs.contains($0) }
+        }
+
+        for record in snapshot.verification where record.state == .verified {
+            let priority = priority(for: record.area)
+            let weight = Int(priority.weight * 4)
+            let delta = Int(Double(weight) * record.age.trust)
+            guard delta > 0 else { continue }
+            rows.append(
+                TruthContributionProvenanceRow(
+                    sourceKind: .verification,
+                    sourceIdentifier: record.id.uuidString,
+                    sourceArea: record.area,
+                    status: record.state.rawValue,
+                    freshness: record.age,
+                    direction: .positive,
+                    reason: "\(priority.rawValue) priority verified record contributes positive, age-decayed Reality signal.",
+                    releaseRelevant: releaseRelevant(area: record.area)
+                )
+            )
+        }
+
+        let strongClassifications: Set<EvidenceClassification> = [.observed, .measured, .verified]
+        for record in evidence where strongClassifications.contains(record.classification) {
+            rows.append(
+                TruthContributionProvenanceRow(
+                    sourceKind: .evidence,
+                    sourceIdentifier: record.id.uuidString,
+                    sourceArea: record.area,
+                    status: record.classification.rawValue,
+                    direction: .positive,
+                    reason: "\(record.classification.rawValue) evidence counts as strong supporting evidence.",
+                    releaseRelevant: releaseRelevant(riskIDs: record.linkedRiskIDs, area: record.area)
+                )
+            )
+        }
+
+        if let mission = snapshot.userMission {
+            rows.append(
+                TruthContributionProvenanceRow(
+                    sourceKind: .mission,
+                    sourceIdentifier: "userMission",
+                    status: mission.category.rawValue,
+                    direction: .positive,
+                    reason: "User-defined mission contributes positive Truth Centre context.",
+                    releaseRelevant: false
+                )
+            )
+        }
+
+        for record in snapshot.verification where record.state == .failed {
+            let priority = priority(for: record.area)
+            rows.append(
+                TruthContributionProvenanceRow(
+                    sourceKind: .verification,
+                    sourceIdentifier: record.id.uuidString,
+                    sourceArea: record.area,
+                    status: record.state.rawValue,
+                    freshness: record.age,
+                    direction: .negative,
+                    reason: "\(priority.rawValue) priority failed verification reduces Reality score.",
+                    releaseRelevant: releaseRelevant(area: record.area)
+                )
+            )
+        }
+
+        for risk in risks where risk.status == .open && (risk.impact == .critical || risk.impact == .high) {
+            let area = risk.linkedVerificationAreas.joined(separator: ", ")
+            rows.append(
+                TruthContributionProvenanceRow(
+                    sourceKind: .risk,
+                    sourceIdentifier: risk.id.uuidString,
+                    sourceArea: area,
+                    status: risk.status.rawValue,
+                    direction: .negative,
+                    reason: "Open \(risk.impact.rawValue.lowercased()) risk reduces Reality score.",
+                    releaseRelevant: risk.isReleaseBlocking
+                )
+            )
+        }
+
+        for assumption in assumptions where assumption.status == .active {
+            rows.append(
+                TruthContributionProvenanceRow(
+                    sourceKind: .assumption,
+                    sourceIdentifier: assumption.id.uuidString,
+                    sourceArea: assumption.linkedVerificationArea,
+                    status: assumption.status.rawValue,
+                    direction: .negative,
+                    reason: "Active assumption reduces trust until verified or superseded.",
+                    releaseRelevant: releaseRelevant(
+                        riskIDs: assumption.linkedRiskIDs,
+                        area: assumption.linkedVerificationArea
+                    )
+                )
+            )
+        }
+
+        for record in snapshot.verification
+        where record.state == .verified && (record.age == .stale || record.age == .expired) {
+            rows.append(
+                TruthContributionProvenanceRow(
+                    sourceKind: .verification,
+                    sourceIdentifier: record.id.uuidString,
+                    sourceArea: record.area,
+                    status: record.state.rawValue,
+                    freshness: record.age,
+                    direction: .negative,
+                    reason: "Verified record is \(record.age.rawValue.lowercased()), so freshness reduces trust.",
+                    releaseRelevant: releaseRelevant(area: record.area)
+                )
+            )
+        }
+
+        let inScope = snapshot.applicability.filter { $0.status.inScope }.count
+        if inScope > 0 {
+            for record in snapshot.verification where record.state == .unknown {
+                rows.append(
+                    TruthContributionProvenanceRow(
+                        sourceKind: .verificationGap,
+                        sourceIdentifier: record.id.uuidString,
+                        sourceArea: record.area,
+                        status: record.state.rawValue,
+                        freshness: record.age,
+                        direction: .negative,
+                        reason: "In-scope area has no verified record yet.",
+                        releaseRelevant: releaseRelevant(area: record.area)
+                    )
+                )
+            }
+        }
+        return rows
+    }
+
     // MARK: - Confidence
 
     /// Confidence answers "how well do we know this?" — distinct from Reality's

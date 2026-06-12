@@ -100,3 +100,6 @@ by being willing to say that the project is not proven yet.
   workspace with 12,000 verification/evidence records, exact aggregate truth
   counts, repeated scoring determinism, related-record resolution, and a
   generous 10-second in-memory upper bound for the scale pass.
+- 2026-06-12: `TruthContributionProvenanceTests` now covers structured
+  source rows for verified records, failed records, strong evidence, stale
+  verification, active assumptions, and open release-blocking risks.
