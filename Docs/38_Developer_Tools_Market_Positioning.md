@@ -57,6 +57,35 @@ because the user can inspect the records behind it.
 - Handoffs are copyable and audit-friendly because they carry evidence,
   registers, risks, assumptions, and current state.
 
+## Handoff Trust Boundary
+
+LocalForge's developer-trust position is strongest when handoffs act like
+review packets, not unchecked status claims.
+`Docs/43_Handoff_Trust_Boundaries.md` defines the operating contract.
+
+A competitive handoff should make a reviewer faster at rejecting or accepting a
+claim. It should carry:
+
+- selected project and repository scope;
+- branch, base, commit, changed files, and review boundary;
+- source record identifiers for the material evidence, risks, assumptions,
+  recommendations, Truth Debt gates, and release-readiness items;
+- commands or manual checks actually run, with result summaries and dates;
+- stale, failed, blocked, unknown, or assumption-based caveats;
+- the next evidence item most likely to improve Confidence.
+
+It should not carry broad optimism. A handoff that says "release-ready",
+"secure", "merged upstream", "notarised", "CI-passed", or "no secrets" must
+include the exact evidence for that phrase. Without that evidence, LocalForge
+should provide the weaker and more useful claim: what is locally supported,
+what is blocked, and what remains to check.
+
+This is where LocalForge can compete against dashboards and PR bots: it reduces
+review ambiguity. The product does not need to replace the tools that write,
+build, test, sign, or publish software. It needs to make their outputs
+traceable enough that a maintainer can review a small PR slice with clear
+trust boundaries.
+
 ## Promises Currently True
 
 These are fair claims for the current repository state:
@@ -120,7 +149,8 @@ new tool categories:
    evidence-rich, notes-only, stale, failed-build, blocked-dependency,
    critical-risk, conflicting-record, legacy-import, and large-workspace cases.
 3. Make copyable handoffs include the percentage, confidence label, top positive
-   contributors, top penalties, and unresolved evidence gaps.
+   contributors, top penalties, unresolved evidence gaps, validation actually
+   run, anti-claims, and the next PR-review path.
 4. Complete Phase 10F human validation so product copy can distinguish
    "locally validated" from "planned".
 5. Tighten Dev Tools evidence capture around build/test failure provenance
