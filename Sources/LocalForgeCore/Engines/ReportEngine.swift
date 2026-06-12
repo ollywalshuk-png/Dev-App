@@ -33,6 +33,9 @@ public struct ReportEngine: Sendable {
             Unknowns:
             \(bullets(snapshot.reality.unknowns))
 
+            ## Trust Caveat
+            \(trustCaveatBlock(for: snapshot))
+
             ## Applicability
             \(snapshot.applicability.map { "- \($0.area): \($0.status.rawValue)" }.joined(separator: "\n"))
 
@@ -78,6 +81,48 @@ public struct ReportEngine: Sendable {
             line += ", \(git.ahead) ahead / \(git.behind) behind"
         }
         return line
+    }
+
+    private func trustCaveatBlock(for snapshot: RepoSnapshot) -> String {
+        var counts: [EvidenceClassification: Int] = [:]
+        for evidence in snapshot.evidence {
+            counts[evidence.classification, default: 0] += 1
+        }
+
+        let strongEvidenceCount = counts[.verified, default: 0]
+            + counts[.measured, default: 0]
+            + counts[.observed, default: 0]
+        let weakEvidenceCount = counts[.inferred, default: 0]
+            + counts[.assumed, default: 0]
+            + counts[.unknown, default: 0]
+        let staleCount = staleVerification(snapshot.verification).count
+        let contradictions = reportConflicts(snapshot.evidence)
+        let verification = snapshot.verificationSummary
+
+        var caveats = [
+            "- Reality score is a local snapshot signal, not a release-ready claim.",
+            "- Evidence floor: \(strongEvidenceCount) verified/measured/observed record(s); \(weakEvidenceCount) inferred/assumed/unknown record(s)."
+        ]
+
+        if staleCount > 0 {
+            caveats.append("- Stale trust: \(staleCount) verified record(s) need re-checking before handoff.")
+        }
+
+        if !contradictions.isEmpty {
+            let sources = contradictions.prefix(3).map(\.source).joined(separator: ", ")
+            caveats.append("- Contradictions: \(contradictions.count) source(s) disagree (\(sources)); resolve before claiming confidence.")
+        }
+
+        let unresolved = verification.failed + verification.inProgress + verification.unknown
+        if verification.total > 0, unresolved > 0 {
+            caveats.append("- Verification gaps: \(verification.failed) failed, \(verification.inProgress) in progress, \(verification.unknown) unknown.")
+        }
+
+        if strongEvidenceCount == 0 {
+            caveats.append("- No strong evidence is present; treat conclusions as unverified until local checks are captured.")
+        }
+
+        return caveats.joined(separator: "\n")
     }
 
     private func provenanceBlock(for snapshot: RepoSnapshot) -> String {
