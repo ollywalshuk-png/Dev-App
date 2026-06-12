@@ -268,11 +268,19 @@ public struct TruthEngine: Sendable {
             )
         }
 
-        // Strong evidence is the dominant factor, but duplicate rows must not
-        // make confidence look better than the underlying proof.
-        let strong = uniqueConfidenceEvidence(
+        let strongCandidates = uniqueConfidenceEvidence(
             evidenceForConfidence.filter { isStrongConfidenceEvidence($0.classification) }
         )
+        let unsupportedFailures = unsupportedFailureEvidence(
+            strongCandidates,
+            verification: snapshot.verification,
+            inScopeAreaKeys: inScopeAreaKeys,
+            inScopeVerificationAreaByID: inScopeVerificationAreaByID
+        )
+
+        // Strong evidence is the dominant factor, but duplicate rows and failed
+        // signals must not make confidence look better than the underlying proof.
+        let strong = strongCandidates.filter { !unsupportedFailures.contains($0.id) }
         let weak = uniqueConfidenceEvidence(
             evidenceForConfidence.filter { $0.classification == .assumed || $0.classification == .unknown }
         )
@@ -292,6 +300,11 @@ public struct TruthEngine: Sendable {
             score += d
             let scope = inScopeAreaKeys.isEmpty ? "" : "in-scope "
             items.append(.init(label: "\(weak.count) \(scope)weak evidence record(s) (Assumed/Unknown)", delta: d))
+        }
+        if !unsupportedFailures.isEmpty {
+            let d = -min(25, unsupportedFailures.count * 6)
+            score += d
+            items.append(.init(label: "\(unsupportedFailures.count) failed evidence signal(s)", delta: d))
         }
 
         // Coverage: evidence per in-scope area.
@@ -437,6 +450,29 @@ public struct TruthEngine: Sendable {
         }
 
         return conflictAreas.count
+    }
+
+    private func unsupportedFailureEvidence(
+        _ evidence: [EvidenceRecord],
+        verification: [VerificationRecord],
+        inScopeAreaKeys: Set<String>,
+        inScopeVerificationAreaByID: [UUID: String]
+    ) -> Set<UUID> {
+        let statesByArea = Dictionary(grouping: verification, by: { normalizedArea($0.area) })
+            .mapValues { Set($0.map(\.state)) }
+
+        return Set(evidence.compactMap { record in
+            guard isConfidenceFailureEvidence(record) else { return nil }
+            let keys = confidenceAreaKeys(
+                for: record,
+                inScopeAreaKeys: inScopeAreaKeys,
+                inScopeVerificationAreaByID: inScopeVerificationAreaByID
+            )
+            guard !keys.contains(where: { statesByArea[$0, default: []].contains(.failed) }) else {
+                return nil
+            }
+            return record.id
+        })
     }
 
     private func confidenceAreaKeys(

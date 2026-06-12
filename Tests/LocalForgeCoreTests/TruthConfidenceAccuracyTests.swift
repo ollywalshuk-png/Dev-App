@@ -89,6 +89,53 @@ struct TruthConfidenceAccuracyTests {
         })
     }
 
+    @Test("failed evidence without failed state cannot raise confidence")
+    func failedEvidenceWithoutFailedStateCannotRaiseConfidence() {
+        let snapshot = releaseSnapshot()
+        let baseline = TruthEngine().confidence(snapshot: snapshot, evidence: [], assumptions: [])
+        let failedEvidence = TruthEngine().confidence(
+            snapshot: snapshot,
+            evidence: [
+                EvidenceRecord(area: "Build", summary: "Release build fails during signing", classification: .measured)
+            ],
+            assumptions: []
+        )
+
+        #expect(failedEvidence.score <= baseline.score)
+        #expect(!failedEvidence.contributions.contains {
+            $0.delta > 0 && $0.label.localizedCaseInsensitiveContains("strong evidence")
+        })
+        #expect(failedEvidence.contributions.contains {
+            $0.delta < 0 && $0.label == "1 failed evidence signal(s)"
+        })
+        #expect(failedEvidence.contributions.contains { $0.label == "Evidence covers 0/2 in-scope area(s)" })
+    }
+
+    @Test("failure evidence can support an explicitly failed state")
+    func failureEvidenceCanSupportExplicitlyFailedState() {
+        let snapshot = releaseSnapshot(verification: [
+            VerificationRecord(area: "Build", state: .failed),
+            VerificationRecord(area: "Automated Tests", state: .unknown),
+        ])
+        let baseline = TruthEngine().confidence(snapshot: snapshot, evidence: [], assumptions: [])
+        let failureEvidence = TruthEngine().confidence(
+            snapshot: snapshot,
+            evidence: [
+                EvidenceRecord(area: "Build", summary: "Release build fails during signing", classification: .measured)
+            ],
+            assumptions: []
+        )
+
+        #expect(failureEvidence.score > baseline.score)
+        #expect(failureEvidence.contributions.contains {
+            $0.delta > 0 && $0.label == "1 unique in-scope strong evidence signal(s)"
+        })
+        #expect(!failureEvidence.contributions.contains {
+            $0.delta < 0 && $0.label.localizedCaseInsensitiveContains("failed evidence")
+        })
+        #expect(failureEvidence.contributions.contains { $0.label == "Evidence covers 1/2 in-scope area(s)" })
+    }
+
     @Test("confidence evidence area matching ignores case and whitespace")
     func confidenceEvidenceAreaMatchingIgnoresCaseAndWhitespace() {
         let snapshot = releaseSnapshot()
