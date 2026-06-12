@@ -5,6 +5,7 @@ import Foundation
 /// issues across all projects in the workspace.
 public struct WorkspaceHealthEngine: Sendable {
     private static let staleVerificationDays = 90
+    private static let staleEnvironmentDays = 90
     private static let oldAssumptionDays = 60
 
     public init() {}
@@ -21,6 +22,7 @@ public struct WorkspaceHealthEngine: Sendable {
 
             issues += truthDecay(record: record, pid: pid, pname: pname)
             issues += evidenceDecay(record: record, pid: pid, pname: pname)
+            issues += environmentEvidenceTrust(record: record, pid: pid, pname: pname)
             issues += registerDecay(record: record, pid: pid, pname: pname)
             issues += assumptionDecay(record: record, pid: pid, pname: pname)
             issues += architectureDrift(record: record, pid: pid, pname: pname)
@@ -123,6 +125,59 @@ public struct WorkspaceHealthEngine: Sendable {
                 title: "\(verifiedWithNoEvidence.count) verified area(s) have no evidence",
                 detail: "Areas: \(verifiedWithNoEvidence.prefix(3).map(\.area).joined(separator: ", "))\(verifiedWithNoEvidence.count > 3 ? "…" : "").",
                 recommendation: "Add at least one evidence record to back each verified area."
+            ))
+        }
+
+        return issues
+    }
+
+    private func environmentEvidenceTrust(record: PersistedProjectRecord, pid: UUID, pname: String) -> [WorkspaceHealthIssue] {
+        var issues: [WorkspaceHealthIssue] = []
+        let evidence = record.evidence ?? []
+        let environments = record.environments ?? []
+        let environmentEvidence = evidence.filter { $0.kind == .environment || normalized($0.area) == "environment" }
+
+        guard !environmentEvidence.isEmpty || !environments.isEmpty else { return [] }
+
+        if !environmentEvidence.isEmpty, environments.isEmpty {
+            issues.append(.init(
+                category: .evidenceDecay,
+                severity: .medium,
+                projectID: pid,
+                projectName: pname,
+                title: "Environment evidence has no snapshot",
+                detail: "Environment capture evidence exists, but no environment snapshot is stored in the registry.",
+                recommendation: "Capture a fresh environment snapshot so macOS, Xcode, Swift, and SDK evidence can be reviewed."
+            ))
+        }
+
+        guard let latest = environments.max(by: { $0.capturedAt < $1.capturedAt }) else {
+            return issues
+        }
+
+        let missingFields = missingCoreEnvironmentFields(in: latest)
+        if !missingFields.isEmpty {
+            issues.append(.init(
+                category: .evidenceDecay,
+                severity: .medium,
+                projectID: pid,
+                projectName: pname,
+                title: "Latest environment snapshot is incomplete",
+                detail: "Missing core field(s): \(missingFields.joined(separator: ", ")).",
+                recommendation: "Re-capture the environment before relying on workspace health or release evidence."
+            ))
+        }
+
+        let threshold = TimeInterval(Self.staleEnvironmentDays * 86_400)
+        if Date().timeIntervalSince(latest.capturedAt) > threshold {
+            issues.append(.init(
+                category: .evidenceDecay,
+                severity: .medium,
+                projectID: pid,
+                projectName: pname,
+                title: "Environment snapshot is stale",
+                detail: "Latest environment snapshot is older than \(Self.staleEnvironmentDays) days.",
+                recommendation: "Capture a fresh environment snapshot before using health status for release decisions."
             ))
         }
 
@@ -318,5 +373,20 @@ public struct WorkspaceHealthEngine: Sendable {
         }
 
         return issues
+    }
+
+    private func missingCoreEnvironmentFields(in snapshot: EnvironmentSnapshot) -> [String] {
+        [
+            ("macOS", snapshot.macOSVersion),
+            ("Xcode", snapshot.xcodeVersion),
+            ("Swift", snapshot.swiftVersion),
+            ("SDK", snapshot.sdkVersion),
+        ]
+        .filter { $0.1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        .map { $0.0 }
+    }
+
+    private func normalized(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
