@@ -94,6 +94,12 @@ struct LocalForgeCLI {
         includeRedactionBoundary: Bool
     ) -> [String] {
         let release = ReleaseReadinessEngine().board(for: snapshot)
+        let truthDebt = TruthDebtEngine().report(
+            snapshot: snapshot,
+            evidence: [],
+            risks: [],
+            assumptions: []
+        )
         var lines = [
             "LocalForge Trust Scan",
             "Project: \(snapshot.project.name)",
@@ -107,6 +113,10 @@ struct LocalForgeCLI {
             "Release gates needing evidence: \(releaseGateLine(release))",
             "Release blockers: \(listLine(release.blockers + release.riskBlockers))",
             "Release caveats: \(listLine(release.caveats))",
+            "Truth Debt status: \(truthDebt.status.rawValue) - \(tidyTerminalText(truthDebt.headline))",
+            "Truth Debt release claim: \(truthDebtReleaseClaimLine(truthDebt))",
+            "Truth Debt blockers/caveats: \(truthDebt.blockers.count) blocker(s), \(truthDebt.caveats.count) caveat(s), \(truthDebt.gates.count) total gate(s)",
+            "Truth Debt next action: \(truthDebtNextActionLine(truthDebt))",
             "Trust chain: \(verificationChainLine(snapshot.reality.chain))",
             "Top risk: \(snapshot.reality.topRisks.first ?? "None observed")",
             "Next action: \(snapshot.reality.nextAction)",
@@ -115,10 +125,26 @@ struct LocalForgeCLI {
         ]
 
         if includeRedactionBoundary {
+            lines.append("Boundary: CLI Truth Debt reflects this scan snapshot only; persisted workspace evidence, risk, and assumption registers are included only when supplied by the GUI.")
             lines.append("Boundary: scan/report run a local read-only scan only; markdown reports redact common credential-like values and private home paths before printing.")
         }
 
         return lines
+    }
+
+    private static func truthDebtReleaseClaimLine(_ report: TruthDebtReport) -> String {
+        switch report.status {
+        case .blocked:
+            return "Blocked by Truth Debt"
+        case .caveated:
+            return "Defensible with caveats"
+        case .defensible:
+            return "Defensible"
+        }
+    }
+
+    private static func truthDebtNextActionLine(_ report: TruthDebtReport) -> String {
+        report.nextActions.first ?? "No truth debt action is required; keep release evidence current."
     }
 
     private static func gitLine(_ git: GitStatus) -> String {
