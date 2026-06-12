@@ -25,6 +25,10 @@ V1 is not distribution-ready.
   - `DEVELOPER_ID_APPLICATION`
   - `NOTARYTOOL_PROFILE`
   - a pre-created notarytool keychain profile
+- `script/release_manifest.sh --check` records local release artifact facts for
+  operator evidence: app path, Git commit, optional zip SHA-256, codesign
+  verification summary, and stapler validation result when the app exists. It
+  does not sign, notarise, staple, upload, or require credentials.
 
 `spctl -a -vv` is intentionally not part of the local development gate. It belongs after Developer ID signing and notarisation.
 
