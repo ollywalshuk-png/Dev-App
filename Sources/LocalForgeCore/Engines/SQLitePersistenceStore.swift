@@ -118,7 +118,10 @@ public final class SQLitePersistenceStore: WorkspacePersisting {
 
             try insertMeta("schema_version", "1", encoder: encoder)
             try insertMeta("scan_mode", state.scanMode.rawValue, encoder: encoder)
-            try insertMeta("theme", String(data: encoder.encode(state.theme), encoding: .utf8) ?? "{}", encoder: encoder)
+            try insertMeta("theme", try encodeJSON(state.theme, encoder: encoder), encoder: encoder)
+            try insertMeta("saved_views", try encodeJSON(state.savedViews, encoder: encoder), encoder: encoder)
+            try insertMeta("pinned_items", try encodeJSON(state.pinnedItems, encoder: encoder), encoder: encoder)
+            try insertMeta("favorited_project_ids", try encodeJSON(state.favoritedProjectIDs, encoder: encoder), encoder: encoder)
             if let last = state.lastActiveProjectID {
                 try insertMeta("last_active_project", last.uuidString, encoder: encoder)
             }
@@ -189,6 +192,9 @@ public final class SQLitePersistenceStore: WorkspacePersisting {
         let theme = meta["theme"].flatMap { $0.data(using: .utf8) }
             .flatMap { try? decoder.decode(ThemePreferences.self, from: $0) } ?? .default
         let lastActive = meta["last_active_project"].flatMap(UUID.init(uuidString:))
+        let savedViews = try decodeMeta([SavedView].self, key: "saved_views", from: meta, decoder: decoder) ?? []
+        let pinnedItems = try decodeMeta([PinnedItem].self, key: "pinned_items", from: meta, decoder: decoder) ?? []
+        let favoritedProjectIDs = try decodeMeta([UUID].self, key: "favorited_project_ids", from: meta, decoder: decoder) ?? []
 
         var projects: [PersistedProjectRecord] = []
         var decodeFailure: Error?
@@ -249,7 +255,10 @@ public final class SQLitePersistenceStore: WorkspacePersisting {
             projects: projects,
             scanMode: scanMode,
             theme: theme,
-            lastActiveProjectID: lastActive
+            lastActiveProjectID: lastActive,
+            savedViews: savedViews,
+            pinnedItems: pinnedItems,
+            favoritedProjectIDs: favoritedProjectIDs
         )
     }
 
@@ -375,6 +384,20 @@ public final class SQLitePersistenceStore: WorkspacePersisting {
             throw SQLiteError.encodingFailed(String(describing: T.self))
         }
         return string
+    }
+
+    private func decodeMeta<T: Decodable>(
+        _ type: T.Type,
+        key: String,
+        from meta: [String: String],
+        decoder: JSONDecoder
+    ) throws -> T? {
+        guard let value = meta[key], let data = value.data(using: .utf8) else { return nil }
+        do {
+            return try decoder.decode(type, from: data)
+        } catch {
+            throw SQLiteError.decodingFailed("\(key): \(error.localizedDescription)")
+        }
     }
 
     private func insertMeta(_ key: String, _ value: String, encoder: JSONEncoder) throws {
