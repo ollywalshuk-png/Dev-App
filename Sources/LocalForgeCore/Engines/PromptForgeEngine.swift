@@ -150,6 +150,12 @@ public struct PromptForgeEngine: Sendable {
             risks: risks,
             assumptions: assumptions
         )))
+        sections.append(releaseClaimGuardSection(
+            snapshot: snapshot,
+            evidence: evidence,
+            risks: risks,
+            assumptions: assumptions
+        ))
 
         sections.append(HandoffSection(title: "Applicability", body: snapshot.applicability
             .map { "- \($0.area): \($0.status.rawValue)" }
@@ -569,6 +575,52 @@ public struct PromptForgeEngine: Sendable {
         Top next actions:
         \(actionBullets(report.nextActions, limit: 3))
         """)
+    }
+
+    private func releaseClaimGuardSection(
+        snapshot: RepoSnapshot,
+        evidence: [EvidenceRecord],
+        risks: [RiskRecord],
+        assumptions: [AssumptionRecord]
+    ) -> HandoffSection {
+        let report = truthDebtReport(
+            snapshot: snapshot,
+            evidence: evidence,
+            risks: risks,
+            assumptions: assumptions
+        )
+        let summary = ReleaseTruthDebtBridge().summary(for: report)
+        return HandoffSection(title: "Release Claim Guard", body: """
+        Release claim: \(safeInline(summary.status.rawValue))
+        Claim guidance: \(safeInline(releaseClaimGuidance(for: summary.status)))
+        Truth debt: \(safeInline(report.headline))
+        Blockers: \(report.blockers.count) · Caveats: \(report.caveats.count) · Total gates: \(report.gates.count)
+        Top blockers:
+        \(releaseFindingLines(summary.topBlockers))
+        Top caveats:
+        \(releaseFindingLines(summary.topCaveats))
+        Next action: \(safeInline(summary.recommendedNextAction))
+        """)
+    }
+
+    private func releaseClaimGuidance(for status: ReleaseTruthDebtSummary.Status) -> String {
+        switch status {
+        case .blocked:
+            "Do not describe this handoff as release-ready until the listed blocker(s) are resolved and backed by fresh local evidence."
+        case .caveated:
+            "A release-ready claim is caveated; carry the listed caveat(s) explicitly and refresh local evidence before external handoff."
+        case .defensible:
+            "No truth debt gates were detected in the current local records. This is not a release approval; keep evidence current."
+        }
+    }
+
+    private func releaseFindingLines(_ findings: [ReleaseTruthDebtFinding]) -> String {
+        guard !findings.isEmpty else { return "- None" }
+        return findings.map { finding in
+            let area = safeInline(finding.area, fallback: "")
+            let areaSuffix = area.isEmpty ? "" : " · \(area)"
+            return "- [\(safeInline(finding.severity.rawValue)) · \(safeInline(finding.kind.rawValue))\(areaSuffix)] \(safeInline(finding.title))"
+        }.joined(separator: "\n")
     }
 
     private func promptTruthDebtBoundary(for report: TruthDebtReport) -> String {
