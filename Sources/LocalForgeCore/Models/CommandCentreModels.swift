@@ -44,6 +44,8 @@ public struct ReleaseReadinessBoard: Hashable, Sendable {
     public var criticalRemaining: Int
     public var highRemaining: Int
     public var blockers: [String]
+    public var caveats: [String]
+    public var riskBlockers: [String]
 
     public init(
         status: ReleaseReadinessStatus,
@@ -52,7 +54,9 @@ public struct ReleaseReadinessBoard: Hashable, Sendable {
         counts: VerificationSummary,
         criticalRemaining: Int,
         highRemaining: Int,
-        blockers: [String]
+        blockers: [String],
+        caveats: [String] = [],
+        riskBlockers: [String] = []
     ) {
         self.status = status
         self.headline = headline
@@ -61,6 +65,8 @@ public struct ReleaseReadinessBoard: Hashable, Sendable {
         self.criticalRemaining = criticalRemaining
         self.highRemaining = highRemaining
         self.blockers = blockers
+        self.caveats = caveats
+        self.riskBlockers = riskBlockers
     }
 
     public var rowsByPriority: [(priority: VerificationPriority, rows: [ReleaseAreaStatus])] {
