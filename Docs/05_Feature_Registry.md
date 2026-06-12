@@ -128,6 +128,12 @@ Phase 10E (Roadmap consolidation and release baseline):
 - Increased the diagnostic code background's visual identity with stronger intensity levels, accent-tinted fixed-grid streams, larger tokens, and less aggressive light-mode dimming while preserving Reduce Motion, inactive-window reduction, and non-interactive rendering.
 - No runtime feature, auto-fix, auto-commit, auto-push, cloud, telemetry, AI, daemon, or whole-disk scanning capability was added.
 
+Developer trust planning docs:
+
+- Added `Docs/35_Developer_Trust_Strategy.md` to define LocalForge's market-grade developer trust contract and Truth Centre percentage/provenance role.
+- Added `Docs/36_Truth_Centre_Stress_Plan.md` to define measurable stress gates for future Truth Centre accuracy claims.
+- No runtime feature or scoring change was added by these documents.
+
 Foundation stubs (deferred by design):
 
 - Free-form terminal / arbitrary command execution.
