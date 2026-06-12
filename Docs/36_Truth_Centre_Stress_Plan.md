@@ -3,8 +3,14 @@
 Date: 2026-06-12
 
 Status: test and validation plan. This document defines gates for a future
-release-grade Truth Centre claim; it does not claim those gates are already
-implemented.
+release-grade Truth Centre claim; it does not claim every release-grade stress
+gate is already implemented.
+
+Related implemented concept: `TruthDebtEngine` now provides a core,
+read-only Truth Debt report for release-ready language. See
+`Docs/40_Truth_Debt_Gates.md`. That report is a gate/caveat layer over existing
+records; it is not the Truth Centre percentage, not a persistence layer, and not
+release automation.
 
 ## Objective
 
@@ -62,6 +68,8 @@ Before claiming the Truth Centre is release-grade, require these checks:
   machine, or the UI shows progress without blocking interaction.
 - The breakdown labels every penalty from open risks, failed verification,
   stale evidence, active assumptions, and unknown areas.
+- Truth Debt report fixtures distinguish Critical/High blockers from lower
+  priority caveats, and preserve source identifiers where source records exist.
 - Copyable handoff output includes the percentage, top contributors, top
   penalties, and unresolved evidence gaps.
 - Manual UI review confirms the percentage, confidence, and provenance remain
@@ -103,3 +111,7 @@ by being willing to say that the project is not proven yet.
 - 2026-06-12: `TruthContributionProvenanceTests` now covers structured
   source rows for verified records, failed records, strong evidence, stale
   verification, active assumptions, and open release-blocking risks.
+- 2026-06-12: `TruthDebtGateTests` now covers Critical/High truth debt blocking
+  release-ready claims, lower-priority truth debt remaining caveated,
+  contradictory evidence blocking critical release claims, and failed
+  dependencies surfacing as claim blockers.
